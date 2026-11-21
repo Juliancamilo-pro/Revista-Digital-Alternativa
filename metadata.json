@@ -1,0 +1,11 @@
+{
+  "name": "Revista Digital Alternativa",
+  "description": "Periodismo independiente de izquierda: investigación, opinión, crónica, fotografía, pódcast y transmisiones en vivo sin filtros editoriales corporativos.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
