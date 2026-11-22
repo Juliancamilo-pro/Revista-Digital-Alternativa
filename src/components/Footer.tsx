@@ -153,13 +153,13 @@ export const Footer: React.FC = () => {
                 </a>
               </li>
               <li>
-                <a href="/unete" onClick={(e) => { e.preventDefault(); navigate('/unete'); }} className="hover:text-white font-semibold text-white">
-                  Únete como colaborador
+                <a href="/colaboradores" onClick={(e) => { e.preventDefault(); navigate('/colaboradores'); }} className="hover:text-white font-semibold text-white">
+                  Conozcan a nuestros colaboradores
                 </a>
               </li>
               <li>
-                <a href="/en-vivo" onClick={(e) => { e.preventDefault(); navigate('/en-vivo'); }} className="hover:text-white">
-                  Transmisiones en vivo
+                <a href="/unete" onClick={(e) => { e.preventDefault(); navigate('/unete'); }} className="hover:text-white">
+                  Únete como colaborador
                 </a>
               </li>
               <li>

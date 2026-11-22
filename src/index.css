@@ -109,6 +109,20 @@
   animation: fade-up-enter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+html.data-saver-active *,
+html.data-saver-active *::before,
+html.data-saver-active *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+html.data-saver-active .backdrop-blur-md,
+html.data-saver-active .backdrop-blur-sm,
+html.data-saver-active .backdrop-blur {
+  backdrop-filter: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

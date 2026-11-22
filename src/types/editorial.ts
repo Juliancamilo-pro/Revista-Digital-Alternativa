@@ -1,7 +1,15 @@
 export type UserRole = 'admin' | 'collaborator' | 'reader';
 export type AccountStatus = 'active' | 'pending' | 'suspended';
 export type OutletType = 'medio' | 'independiente';
-export type PostType = 'article' | 'gallery' | 'video' | 'audio' | 'livestream';
+export type DataSaverMode = 'auto' | 'on' | 'off';
+export type PostType =
+  | 'article'
+  | 'gallery'
+  | 'video'
+  | 'audio'
+  | 'infographic'
+  | 'document'
+  | 'livestream';
 export type EditorialKind =
   | 'articulo'
   | 'investigacion'
@@ -9,11 +17,14 @@ export type EditorialKind =
   | 'cronica'
   | 'analisis'
   | 'reportaje'
-  | 'multimedia';
+  | 'multimedia'
+  | 'entrevista'
+  | 'editorial'
+  | 'explicativo'
+  | 'datos'
+  | 'carta';
 export type PostStatus = 'draft' | 'in_review' | 'scheduled' | 'published' | 'unpublished';
 export type ModerationMode = 'post' | 'pre';
-export type StreamStatus = 'scheduled' | 'live' | 'ended';
-export type StreamSourceType = 'youtube' | 'facebook' | 'twitch' | 'hls' | 'webrtc';
 
 export interface HomepageSectionConfig {
   id: string;
@@ -28,6 +39,7 @@ export interface HomepageSectionConfig {
     | 'galleries'
     | 'videos'
     | 'audio'
+    | 'collaborators'
     | 'categories_feed';
   title: string;
   enabled: boolean;
@@ -95,7 +107,22 @@ export interface UserAccount {
   updatedAt?: unknown;
 }
 
-export interface CollaboratorPublic {
+export interface CollaboratorPrivacyFlags {
+  showInDirectory?: boolean;
+  showAvatar?: boolean;
+  showBio?: boolean;
+  showWebsite?: boolean;
+  showSocialTwitter?: boolean;
+  showSocialInstagram?: boolean;
+  showSocialYoutube?: boolean;
+  showPublicEmail?: boolean;
+  showLocation?: boolean;
+  showTopics?: boolean;
+  showJoinDate?: boolean;
+  showPostCount?: boolean;
+}
+
+export interface CollaboratorPublic extends CollaboratorPrivacyFlags {
   uid: string;
   name: string;
   outletType: OutletType;
@@ -106,9 +133,54 @@ export interface CollaboratorPublic {
   socialTwitter?: string;
   socialInstagram?: string;
   socialYoutube?: string;
+  publicEmail?: string;
+  location?: string;
+  topics?: string[];
   status: AccountStatus;
   postCount: number;
+  directoryHidden?: boolean;
+  directoryFeatured?: boolean;
+  directoryOrder?: number;
   createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface CollaboratorSettings extends CollaboratorPrivacyFlags {
+  uid: string;
+  name: string;
+  outletType: OutletType;
+  bio?: string;
+  avatarUrl?: string;
+  coverUrl?: string;
+  websiteUrl?: string;
+  socialTwitter?: string;
+  socialInstagram?: string;
+  socialYoutube?: string;
+  publicEmail?: string;
+  location?: string;
+  topics?: string[];
+  updatedAt?: unknown;
+}
+
+export type AdminIdentityId = 'owner' | 'magazine';
+
+export interface AdminPublicIdentity {
+  id: AdminIdentityId;
+  identityType: AdminIdentityId;
+  name: string;
+  roleTitle?: string;
+  outletType: OutletType;
+  bio?: string;
+  avatarUrl?: string;
+  coverUrl?: string;
+  websiteUrl?: string;
+  socialTwitter?: string;
+  socialInstagram?: string;
+  socialYoutube?: string;
+  publicEmail?: string;
+  location?: string;
+  topics?: string[];
+  showInDirectory: boolean;
   updatedAt?: unknown;
 }
 
@@ -143,7 +215,10 @@ export type ContentBlockType =
   | 'timeline'
   | 'table'
   | 'divider'
-  | 'social_embed';
+  | 'social_embed'
+  | 'callout'
+  | 'list'
+  | 'document';
 
 export interface TimelineEntry {
   date: string;
@@ -155,6 +230,11 @@ export interface CorrectionEntry {
   date: string;
   note: string;
   editorName: string;
+}
+
+export interface SourceReference {
+  label: string;
+  url?: string;
 }
 
 export interface ContentBlock {
@@ -173,6 +253,13 @@ export interface ContentBlock {
   tableRows?: string[][];
   embedUrl?: string;
   embedPlatform?: string;
+  calloutTone?: 'info' | 'key_fact' | 'warning';
+  calloutTitle?: string;
+  listStyle?: 'unordered' | 'ordered';
+  listItems?: string[];
+  documentUrl?: string;
+  documentTitle?: string;
+  documentDescription?: string;
 }
 
 export interface GalleryItem {
@@ -201,6 +288,9 @@ export interface Post {
   seriesTitle?: string;
   tags: string[];
   authorId: string;
+  authorProfileId?: string;
+  authorIdentityType?: 'owner' | 'magazine' | 'collaborator';
+  authorVerified?: boolean;
   authorName: string;
   authorAvatar?: string;
   authorOutletType?: OutletType;
@@ -210,8 +300,15 @@ export interface Post {
   blocks: ContentBlock[];
   galleryItems?: GalleryItem[];
   corrections?: CorrectionEntry[];
+  keyPoints?: string[];
+  sensitiveContent?: boolean;
+  sensitiveWarning?: string;
+  sources?: SourceReference[];
+  seoDescription?: string;
+  commentsEnabled?: boolean;
   mediaUrl?: string;
   mediaSourceType?: string;
+  documentTitle?: string;
   audioDurationSec?: number;
   readTimeMinutes: number;
   viewCount: number;
@@ -220,39 +317,6 @@ export interface Post {
   scheduledFor?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
-}
-
-export interface Livestream {
-  id: string;
-  title: string;
-  description?: string;
-  announcementImage?: string;
-  status: StreamStatus;
-  sourceType: StreamSourceType;
-  sourceUrl?: string;
-  scheduledFor?: unknown;
-  startedAt?: unknown;
-  endedAt?: unknown;
-  archivedPostId?: string;
-  hostId: string;
-  hostName: string;
-  hostAvatar?: string;
-  viewerCount: number;
-  peakViewers: number;
-  isSample: boolean;
-  createdAt?: unknown;
-  updatedAt?: unknown;
-}
-
-export interface ChatMessage {
-  id: string;
-  streamId: string;
-  authorId?: string;
-  authorName: string;
-  authorRole?: string;
-  text: string;
-  status: 'visible' | 'hidden';
-  createdAt?: unknown;
 }
 
 export interface CommentItem {
@@ -264,6 +328,8 @@ export interface CommentItem {
   authorId?: string;
   authorName: string;
   authorIsAnonymous: boolean;
+  authorIsAdmin?: boolean;
+  authorProfileId?: string;
   authorAvatar?: string;
   text: string;
   status: 'approved' | 'pending' | 'hidden' | 'spam';

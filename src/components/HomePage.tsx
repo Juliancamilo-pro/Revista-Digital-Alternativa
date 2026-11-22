@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { ArrowRight, Calendar, Camera, Headphones, Play, Radio, TrendingUp, Zap } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Camera, Headphones, Play, TrendingUp, Users, Zap } from 'lucide-react';
+import { useDataSaver } from '../context/DataSaverContext';
 import { useSite } from '../context/SiteContext';
-import { formatDateEs, getEditorialKindLabel, toDate } from '../lib/utils';
+import { formatDateEs, getEditorialKindLabel } from '../lib/utils';
 import { HomepageSectionConfig, Post, PostType } from '../types/editorial';
 import { ArticleCard } from './ArticleCard';
 import { EditorialImage } from './EditorialImage';
+import { VerifiedBadge } from './VerifiedBadge';
 
 export const HomePage: React.FC = () => {
   const {
@@ -12,15 +14,24 @@ export const HomePage: React.FC = () => {
     publishedPosts,
     categories,
     seriesList,
-    livestreams,
-    activeLivestream,
+    collaborators,
+    adminIdentities,
+    isAuthorVerified,
     loading,
     navigate,
   } = useSite();
+  const { isDataSaverActive } = useDataSaver();
 
   const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | PostType>('all');
   const [feedCatFilter, setFeedCatFilter] = useState<string>('all');
-  const [visibleCount, setVisibleCount] = useState(9);
+  const [hasExpandedFeed, setHasExpandedFeed] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(() => (isDataSaverActive ? 6 : 9));
+
+  useEffect(() => {
+    if (!hasExpandedFeed) {
+      setVisibleCount(isDataSaverActive ? 6 : 9);
+    }
+  }, [isDataSaverActive, hasExpandedFeed]);
 
   const orderedSections = useMemo(() => {
     return [...(siteConfig.homepageSections || [])]
@@ -72,13 +83,66 @@ export const HomePage: React.FC = () => {
   const videoPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'video').slice(0, 3), [publishedPosts]);
   const audioPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'audio').slice(0, 3), [publishedPosts]);
 
-  const scheduledStreams = useMemo(
-    () =>
-      livestreams
-        .filter((s) => s.status === 'scheduled')
-        .sort((a, b) => toDate(a.scheduledFor).getTime() - toDate(b.scheduledFor).getTime()),
-    [livestreams]
-  );
+  const directoryCards = useMemo(() => {
+    const cards: Array<{
+      id: string;
+      name: string;
+      subtitle: string;
+      bio?: string;
+      avatarUrl?: string;
+      verified: boolean;
+      isAdmin: boolean;
+    }> = [];
+
+    if (adminIdentities.owner?.showInDirectory !== false) {
+      cards.push({
+        id: adminIdentities.owner.id,
+        name: adminIdentities.owner.name,
+        subtitle: adminIdentities.owner.roleTitle || 'Dirección editorial',
+        bio: adminIdentities.owner.bio,
+        avatarUrl: adminIdentities.owner.avatarUrl,
+        verified: true,
+        isAdmin: true,
+      });
+    }
+    if (adminIdentities.magazine?.showInDirectory !== false) {
+      cards.push({
+        id: adminIdentities.magazine.id,
+        name: adminIdentities.magazine.name,
+        subtitle: adminIdentities.magazine.roleTitle || 'Medio editor',
+        bio: adminIdentities.magazine.bio,
+        avatarUrl: adminIdentities.magazine.avatarUrl,
+        verified: true,
+        isAdmin: true,
+      });
+    }
+
+    const activeCollabs = collaborators
+      .filter((c) => c.status === 'active' && c.showInDirectory === true && c.directoryHidden !== true)
+      .sort((a, b) => {
+        if (Boolean(a.directoryFeatured) !== Boolean(b.directoryFeatured)) {
+          return a.directoryFeatured ? -1 : 1;
+        }
+        const oa = a.directoryOrder ?? 999;
+        const ob = b.directoryOrder ?? 999;
+        if (oa !== ob) return oa - ob;
+        return (b.postCount || 0) - (a.postCount || 0);
+      });
+
+    for (const c of activeCollabs) {
+      cards.push({
+        id: c.uid,
+        name: c.name,
+        subtitle: c.outletType === 'medio' ? 'Medio colaborador' : 'Periodista independiente',
+        bio: c.showBio ? c.bio : undefined,
+        avatarUrl: c.showAvatar ? c.avatarUrl : undefined,
+        verified: c.status === 'active',
+        isAdmin: false,
+      });
+    }
+
+    return cards.slice(0, 6);
+  }, [adminIdentities, collaborators]);
 
   const filteredFeed = useMemo(() => {
     return publishedPosts.filter((p) => {
@@ -102,7 +166,7 @@ export const HomePage: React.FC = () => {
   }
 
   // Portada limpia "Muy pronto" cuando no hay contenido real publicado
-  if (!loading && publishedPosts.length === 0 && !activeLivestream && scheduledStreams.length === 0) {
+  if (!loading && publishedPosts.length === 0) {
     return (
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-24 animate-fade-up">
         <section className="relative overflow-hidden rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-gradient-to-br from-[#141414] via-[#1C0B0B] to-[#0D0D0D] text-[#F4F1EA] px-6 py-16 sm:px-14 sm:py-24 shadow-2xl">
@@ -147,71 +211,29 @@ export const HomePage: React.FC = () => {
 
   const renderSection = (section: HomepageSectionConfig) => {
     switch (section.type) {
-      case 'live': {
-        if (!activeLivestream && scheduledStreams.length === 0) return null;
-        return (
-          <section key={section.id} className="space-y-4 animate-fade-up">
-            {activeLivestream && (
-              <div className="rounded-3xl border border-red-900/50 bg-gradient-to-br from-[#7F1D1D] via-[#1C0A0A] to-[#0D0D0D] text-white p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-xl">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2.5 text-xs font-display font-extrabold uppercase tracking-widest text-[#FCA5A5]">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444] animate-pulse shadow-[0_0_12px_#EF4444]" aria-hidden="true" />
-                    <span>EN VIVO AHORA</span>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-tabular">{activeLivestream.viewerCount} espectadores</span>
-                  </div>
-                  <h2 className="font-display text-2xl sm:text-4xl font-extrabold leading-tight headline-balance">
-                    {activeLivestream.title}
-                  </h2>
-                  <p className="text-sm text-neutral-300">
-                    Conduce: {activeLivestream.hostName}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/en-vivo/${activeLivestream.id}`)}
-                  className="px-6 py-3.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-sm whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2 shadow-lg transition-transform hover:-translate-y-0.5"
-                >
-                  <Radio className="w-4 h-4" aria-hidden="true" />
-                  <span>Ver transmisión</span>
-                </button>
-              </div>
-            )}
-
-            {scheduledStreams.length > 0 && (
-              <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-[var(--editorial-primary)]/10 text-[var(--editorial-primary)] flex items-center justify-center shrink-0">
-                    <Calendar className="w-5 h-5" aria-hidden="true" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                      Próxima transmisión programada
-                    </p>
-                    <p className="font-display text-lg font-bold truncate">
-                      {scheduledStreams[0].title}
-                    </p>
-                    <p className="text-xs text-neutral-600 dark:text-neutral-400">
-                      {formatDateEs(scheduledStreams[0].scheduledFor, true)} · {scheduledStreams[0].hostName}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/en-vivo/${scheduledStreams[0].id}`)}
-                  className="px-5 py-2.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black font-display font-bold uppercase tracking-wider text-xs whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-                >
-                  Ir a sala y cuenta regresiva
-                </button>
-              </div>
-            )}
-          </section>
-        );
-      }
-
       case 'hero': {
         if (!heroPost) return null;
         const railPosts = publishedPosts.filter((p) => p.id !== heroPost.id).slice(0, 4);
+        const heroIsCollab = collaborators.some((c) => c.uid === heroPost.authorId);
+        const heroAuthorTargetId =
+          heroPost.authorProfileId ||
+          (heroPost.authorIdentityType === 'owner'
+            ? 'owner'
+            : heroPost.authorIdentityType === 'magazine'
+            ? 'magazine'
+            : !heroIsCollab &&
+              (heroPost.authorName === siteConfig.siteName ||
+                heroPost.authorName === adminIdentities.magazine.name)
+            ? 'magazine'
+            : !heroIsCollab && heroPost.authorName === adminIdentities.owner.name
+            ? 'owner'
+            : heroPost.authorId);
+        const heroVerified = isAuthorVerified(
+          heroAuthorTargetId,
+          heroPost.authorIdentityType,
+          heroPost.authorVerified,
+          heroPost.authorName
+        );
         return (
           <section key={section.id} className="space-y-8 animate-fade-up">
             {/* Full-screen Editorial Hero */}
@@ -220,7 +242,10 @@ export const HomePage: React.FC = () => {
                 src={heroPost.coverImage}
                 alt={heroPost.coverAlt || heroPost.title}
                 fallbackTitle={heroPost.title}
-                className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                priority
+                sensitive={heroPost.sensitiveContent}
+                wrapperClassName="absolute inset-0"
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-black/20" />
 
@@ -266,7 +291,17 @@ export const HomePage: React.FC = () => {
 
                 <div className="pt-2 flex flex-wrap items-center justify-between gap-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-300">
-                    <span className="font-bold text-white">{heroPost.authorName}</span>
+                    <a
+                      href={`/colaborador/${heroAuthorTargetId}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(`/colaborador/${heroAuthorTargetId}`);
+                      }}
+                      className="inline-flex items-center gap-1.5 font-bold text-white hover:text-[#FCA5A5] transition-colors"
+                    >
+                      <span>{heroPost.authorName}</span>
+                      {heroVerified && <VerifiedBadge size="xs" />}
+                    </a>
                     <span aria-hidden="true">·</span>
                     <span>{formatDateEs(heroPost.publishedAt || heroPost.createdAt)}</span>
                     <span aria-hidden="true">·</span>
@@ -595,6 +630,64 @@ export const HomePage: React.FC = () => {
         );
       }
 
+      case 'collaborators': {
+        if (directoryCards.length === 0) return null;
+        return (
+          <section key={section.id} className="space-y-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-neutral-300 dark:border-neutral-800 pb-2">
+              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                <Users className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
+                <span>{section.title || 'Conozcan a nuestros colaboradores'}</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => navigate('/colaboradores')}
+                className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline cursor-pointer"
+              >
+                <span>Ver directorio completo</span>
+                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {directoryCards.map((item) => (
+                <article
+                  key={item.id}
+                  onClick={() => navigate(`/colaborador/${item.id}`)}
+                  className="cursor-pointer rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex items-start gap-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-900 text-white shrink-0 flex items-center justify-center font-display text-lg font-extrabold uppercase">
+                    {item.avatarUrl ? (
+                      <EditorialImage
+                        src={item.avatarUrl}
+                        alt={item.name}
+                        fallbackTitle={item.name}
+                        allowInDataSaver
+                      />
+                    ) : (
+                      item.name.slice(0, 1)
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-[10px] font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                      {item.subtitle}
+                    </p>
+                    <h3 className="font-display text-lg font-extrabold uppercase tracking-tight flex items-center gap-1.5">
+                      <span className="truncate">{item.name}</span>
+                      {item.verified && <VerifiedBadge size="xs" />}
+                    </h3>
+                    {item.bio && (
+                      <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2 leading-relaxed">
+                        {item.bio}
+                      </p>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        );
+      }
+
       case 'categories_feed': {
         if (publishedPosts.length === 0) return null;
         return (
@@ -613,13 +706,15 @@ export const HomePage: React.FC = () => {
                       ['gallery', 'Galerías'],
                       ['video', 'Video'],
                       ['audio', 'Audio'],
+                      ['infographic', 'Infografías'],
+                      ['document', 'Documentos'],
                     ] as const
                   ).map(([val, label]) => (
                     <button
                       key={val}
                       type="button"
                       onClick={() => setFeedTypeFilter(val)}
-                      className={`px-3.5 py-1.5 rounded-full cursor-pointer transition-colors ${
+                      className={`px-3 py-1.5 rounded-full cursor-pointer transition-colors ${
                         feedTypeFilter === val
                           ? 'bg-[var(--editorial-primary)] text-white'
                           : 'text-neutral-700 dark:text-neutral-300 hover:text-black dark:hover:text-white'
@@ -664,7 +759,10 @@ export const HomePage: React.FC = () => {
                   <div className="text-center pt-4">
                     <button
                       type="button"
-                      onClick={() => setVisibleCount((v) => v + 6)}
+                      onClick={() => {
+                        setHasExpandedFeed(true);
+                        setVisibleCount((v) => v + 6);
+                      }}
                       className="px-6 py-3 rounded-full border-2 border-[#111111] dark:border-neutral-500 font-display font-bold uppercase tracking-wider text-sm hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors cursor-pointer"
                     >
                       Cargar más publicaciones

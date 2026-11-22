@@ -2,19 +2,131 @@ import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { storage } from './firebase';
 import { ContentBlock, Post, SiteConfig } from '../types/editorial';
 
+export type MediaSlot =
+  | 'cover'
+  | 'inline'
+  | 'gallery'
+  | 'avatar'
+  | 'logo'
+  | 'banner'
+  | 'infographic'
+  | 'document';
+
+export interface MediaSlotPreset {
+  maxDimension: number;
+  quality: number;
+  squareCrop?: boolean;
+  label: string;
+}
+
+export const MEDIA_SLOT_PRESETS: Record<MediaSlot, MediaSlotPreset> = {
+  cover: { maxDimension: 1440, quality: 0.82, label: 'Portada (1440px WebP)' },
+  inline: { maxDimension: 1200, quality: 0.8, label: 'Imagen en artículo (1200px WebP)' },
+  gallery: { maxDimension: 1400, quality: 0.82, label: 'Galería documental (1400px WebP)' },
+  avatar: { maxDimension: 512, quality: 0.84, squareCrop: true, label: 'Foto de perfil 1:1 (512px)' },
+  logo: { maxDimension: 640, quality: 0.88, label: 'Logotipo (640px)' },
+  banner: { maxDimension: 1600, quality: 0.82, label: 'Encabezado (1600px)' },
+  infographic: { maxDimension: 1920, quality: 0.88, label: 'Infografía alta nitidez (1920px)' },
+  document: { maxDimension: 1200, quality: 0.8, label: 'Documento / Anexo' },
+};
+
+export interface FocalPoint {
+  x: number;
+  y: number;
+}
+
+export interface ParsedMediaUrl {
+  cleanUrl: string;
+  fpX: number;
+  fpY: number;
+  blurDataUrl?: string;
+}
+
+export function encodeMediaUrlWithMeta(
+  rawUrl: string,
+  meta?: { fpX?: number; fpY?: number; blur?: string }
+): string {
+  const { cleanUrl, fpX, fpY, blurDataUrl } = parseMediaUrlMeta(rawUrl);
+  if (!cleanUrl) return '';
+
+  const nextFpX = Math.max(5, Math.min(95, Math.round(meta?.fpX ?? fpX)));
+  const nextFpY = Math.max(5, Math.min(95, Math.round(meta?.fpY ?? fpY)));
+  const nextBlur = meta?.blur !== undefined ? meta.blur : blurDataUrl;
+
+  const params: string[] = [];
+  if (nextFpX !== 50 || nextFpY !== 50 || nextBlur) {
+    params.push(`fp=${nextFpX},${nextFpY}`);
+  }
+  if (nextBlur && nextBlur.startsWith('data:image/')) {
+    const candidate = `${cleanUrl}#${[...params, `blur=${encodeURIComponent(nextBlur)}`].join('&')}`;
+    if (candidate.length < 395000) {
+      return candidate;
+    }
+  }
+  if (params.length > 0) {
+    const candidate = `${cleanUrl}#${params.join('&')}`;
+    if (candidate.length < 395000) return candidate;
+  }
+  return cleanUrl;
+}
+
+export function parseMediaUrlMeta(rawUrl?: string): ParsedMediaUrl {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return { cleanUrl: '', fpX: 50, fpY: 50 };
+  }
+  const trimmed = rawUrl.trim();
+  const hashIndex = trimmed.indexOf('#');
+  if (hashIndex === -1) {
+    return { cleanUrl: trimmed, fpX: 50, fpY: 50 };
+  }
+
+  const base = trimmed.slice(0, hashIndex);
+  const fragment = trimmed.slice(hashIndex + 1);
+  if (!fragment.includes('fp=') && !fragment.includes('blur=')) {
+    return { cleanUrl: trimmed, fpX: 50, fpY: 50 };
+  }
+
+  let fpX = 50;
+  let fpY = 50;
+  let blurDataUrl: string | undefined;
+
+  for (const part of fragment.split('&')) {
+    if (part.startsWith('fp=')) {
+      const coords = part.slice(3).split(',');
+      const x = Number(coords[0]);
+      const y = Number(coords[1]);
+      if (Number.isFinite(x)) fpX = Math.max(5, Math.min(95, x));
+      if (Number.isFinite(y)) fpY = Math.max(5, Math.min(95, y));
+    } else if (part.startsWith('blur=')) {
+      try {
+        const decoded = decodeURIComponent(part.slice(5));
+        if (decoded.startsWith('data:image/')) {
+          blurDataUrl = decoded;
+        }
+      } catch {
+        // Ignore malformed blur fragment
+      }
+    }
+  }
+
+  return { cleanUrl: base, fpX, fpY, blurDataUrl };
+}
+
 export function generateId(prefix = 'id'): string {
   const rand = Math.random().toString(36).slice(2, 9);
   return `${prefix}_${Date.now().toString(36)}_${rand}`.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
 export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 120) || 'nota';
+  return (
+    text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 120) || 'nota'
+  );
 }
 
 export async function hashInviteCode(code: string): Promise<string> {
@@ -44,7 +156,7 @@ export function toDate(value: unknown): Date {
     return (value as { toDate: () => Date }).toDate();
   }
   if (typeof value === 'object' && value !== null && 'seconds' in value) {
-    return new Date(((value as { seconds: number }).seconds) * 1000);
+    return new Date((value as { seconds: number }).seconds * 1000);
   }
   if (typeof value === 'string' || typeof value === 'number') {
     const d = new Date(value);
@@ -75,6 +187,8 @@ export function estimateReadTime(blocks: ContentBlock[], subtitle = ''): number 
     subtitle,
     ...blocks.map((b) => {
       if (b.text) return b.text;
+      if (b.calloutTitle || b.text) return `${b.calloutTitle || ''} ${b.text || ''}`;
+      if (b.listItems) return b.listItems.join(' ');
       if (b.timelineEntries) return b.timelineEntries.map((t) => `${t.title} ${t.detail}`).join(' ');
       if (b.tableRows) return b.tableRows.flat().join(' ');
       return '';
@@ -90,13 +204,93 @@ export function estimateReadTime(blocks: ContentBlock[], subtitle = ''): number 
 export interface OptimizedImageResult {
   blob: Blob;
   dataUrl: string;
+  blurDataUrl: string;
+  focalPoint: FocalPoint;
   originalBytes: number;
   optimizedBytes: number;
   width: number;
   height: number;
 }
 
-export async function optimizeImageFile(file: File, maxDimension = 1440, quality = 0.82): Promise<OptimizedImageResult> {
+function computeSmartFocalPoint(img: HTMLImageElement): FocalPoint {
+  try {
+    const sampleSize = 48;
+    const canvas = document.createElement('canvas');
+    canvas.width = sampleSize;
+    canvas.height = sampleSize;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return { x: 50, y: 45 };
+    ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+    const { data } = ctx.getImageData(0, 0, sampleSize, sampleSize);
+
+    const lum = (px: number, py: number) => {
+      const idx = (py * sampleSize + px) * 4;
+      return data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
+    };
+
+    let weightedX = 0;
+    let weightedY = 0;
+    let totalWeight = 0;
+
+    for (let y = 1; y < sampleSize - 1; y++) {
+      for (let x = 1; x < sampleSize - 1; x++) {
+        const dx = Math.abs(lum(x + 1, y) - lum(x - 1, y));
+        const dy = Math.abs(lum(x, y + 1) - lum(x, y - 1));
+        const edge = dx + dy;
+        // Slight portrait upper-center bias to protect faces/subjects
+        const portraitBias = y < sampleSize * 0.55 ? 1.15 : 0.9;
+        const w = edge * portraitBias;
+        if (w > 18) {
+          weightedX += (x / (sampleSize - 1)) * 100 * w;
+          weightedY += (y / (sampleSize - 1)) * 100 * w;
+          totalWeight += w;
+        }
+      }
+    }
+
+    if (totalWeight <= 0) return { x: 50, y: 45 };
+    return {
+      x: Math.round(Math.max(15, Math.min(85, weightedX / totalWeight))),
+      y: Math.round(Math.max(15, Math.min(85, weightedY / totalWeight))),
+    };
+  } catch {
+    return { x: 50, y: 45 };
+  }
+}
+
+function createTinyBlurPlaceholder(source: CanvasImageSource, width: number, height: number): string {
+  try {
+    const targetW = 24;
+    const targetH = Math.max(14, Math.round((height / Math.max(1, width)) * targetW));
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.drawImage(source, 0, 0, targetW, targetH);
+    return canvas.toDataURL('image/webp', 0.45);
+  } catch {
+    return '';
+  }
+}
+
+export async function optimizeImageFile(
+  file: File,
+  maxDimensionOrOptions:
+    | number
+    | { slot?: MediaSlot; maxDimension?: number; quality?: number; squareCrop?: boolean } = 1440,
+  legacyQuality = 0.82
+): Promise<OptimizedImageResult> {
+  const opts =
+    typeof maxDimensionOrOptions === 'number'
+      ? { maxDimension: maxDimensionOrOptions, quality: legacyQuality }
+      : maxDimensionOrOptions;
+
+  const preset = opts.slot ? MEDIA_SLOT_PRESETS[opts.slot] : undefined;
+  const maxDimension = opts.maxDimension ?? preset?.maxDimension ?? 1440;
+  const quality = opts.quality ?? preset?.quality ?? 0.82;
+  const squareCrop = opts.squareCrop ?? preset?.squareCrop ?? false;
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
@@ -104,7 +298,24 @@ export async function optimizeImageFile(file: File, maxDimension = 1440, quality
       const img = new Image();
       img.onerror = () => reject(new Error('Archivo de imagen inválido.'));
       img.onload = () => {
-        let { width, height } = img;
+        const focalPoint = computeSmartFocalPoint(img);
+        let sx = 0;
+        let sy = 0;
+        let sw = img.naturalWidth || img.width;
+        let sh = img.naturalHeight || img.height;
+
+        if (squareCrop) {
+          const minSide = Math.min(sw, sh);
+          const maxShiftX = sw - minSide;
+          const maxShiftY = sh - minSide;
+          sx = Math.round(maxShiftX * (focalPoint.x / 100));
+          sy = Math.round(maxShiftY * (focalPoint.y / 100));
+          sw = minSide;
+          sh = minSide;
+        }
+
+        let width = sw;
+        let height = sh;
         if (width > maxDimension || height > maxDimension) {
           if (width >= height) {
             height = Math.round((height * maxDimension) / width);
@@ -114,15 +325,17 @@ export async function optimizeImageFile(file: File, maxDimension = 1440, quality
             height = maxDimension;
           }
         }
+
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           reject(new Error('Canvas no disponible.'));
           return;
         }
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, width, height);
+        const blurDataUrl = createTinyBlurPlaceholder(canvas, width, height);
         const mime = 'image/webp';
         canvas.toBlob(
           (blob) => {
@@ -135,6 +348,8 @@ export async function optimizeImageFile(file: File, maxDimension = 1440, quality
               resolve({
                 blob,
                 dataUrl: String(r2.result || ''),
+                blurDataUrl,
+                focalPoint: squareCrop ? { x: 50, y: 50 } : focalPoint,
                 originalBytes: file.size,
                 optimizedBytes: blob.size,
                 width,
@@ -154,45 +369,54 @@ export async function optimizeImageFile(file: File, maxDimension = 1440, quality
 }
 
 /**
- * Uploads optimized media to Firebase Storage when permitted,
- * gracefully falling back to compact optimized data URLs for images under 350KB
- * if Storage bucket security rules have not yet been opened in Firebase Console.
+ * Sube activos optimizados a Firebase Storage con progreso en tiempo real (0..100%)
+ * y detección automática de punto focal + miniatura borrosa progresiva.
+ * Para imágenes menores a 350 KB, incluye respaldo compacto si Storage aún no tiene reglas habilitadas.
  */
 export async function uploadMediaAsset(
   file: File,
   folder: string,
-  onProgress?: (pct: number) => void
-): Promise<{ url: string; info: string }> {
+  onProgress?: (pct: number) => void,
+  slot: MediaSlot = 'inline'
+): Promise<{ url: string; cleanUrl: string; blurDataUrl?: string; focalPoint: FocalPoint; info: string }> {
   const isImage = file.type.startsWith('image/');
   let payloadBlob: Blob = file;
   let fallbackDataUrl = '';
+  let blurDataUrl = '';
+  let focalPoint: FocalPoint = { x: 50, y: 50 };
   let optimizationNote = '';
 
+  if (onProgress) onProgress(5);
+
   if (isImage) {
-    const optimized = await optimizeImageFile(file, 1280, 0.8);
+    const optimized = await optimizeImageFile(file, { slot });
     payloadBlob = optimized.blob;
     fallbackDataUrl = optimized.dataUrl;
+    blurDataUrl = optimized.blurDataUrl;
+    focalPoint = optimized.focalPoint;
     const savedPct = Math.max(0, Math.round((1 - optimized.optimizedBytes / Math.max(1, optimized.originalBytes)) * 100));
-    optimizationNote = `Optimizada (${Math.round(optimized.optimizedBytes / 1024)} KB, -${savedPct}%)`;
+    optimizationNote = `${MEDIA_SLOT_PRESETS[slot].label}: ${Math.round(optimized.optimizedBytes / 1024)} KB (-${savedPct}%)`;
+    if (onProgress) onProgress(22);
   }
 
   const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const storageRef = ref(storage, `${folder}/${safeName}`);
 
   try {
-    const url = await new Promise<string>((resolve, reject) => {
+    const cleanUrl = await new Promise<string>((resolve, reject) => {
       const task = uploadBytesResumable(storageRef, payloadBlob, {
         contentType: isImage ? 'image/webp' : file.type || 'application/octet-stream',
       });
       const timer = setTimeout(() => {
         task.cancel();
         reject(new Error('storage-timeout'));
-      }, 8000);
+      }, 15000);
       task.on(
         'state_changed',
         (snap) => {
           if (onProgress && snap.totalBytes > 0) {
-            onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+            const pct = Math.round(22 + (snap.bytesTransferred / snap.totalBytes) * 78);
+            onProgress(Math.min(99, pct));
           }
         },
         (err) => {
@@ -203,6 +427,7 @@ export async function uploadMediaAsset(
           clearTimeout(timer);
           try {
             const dl = await getDownloadURL(task.snapshot.ref);
+            if (onProgress) onProgress(100);
             resolve(dl);
           } catch (e) {
             reject(e);
@@ -210,28 +435,90 @@ export async function uploadMediaAsset(
         }
       );
     });
-    return { url, info: optimizationNote || 'Subido a Firebase Storage' };
+    const url = isImage
+      ? encodeMediaUrlWithMeta(cleanUrl, { fpX: focalPoint.x, fpY: focalPoint.y, blur: blurDataUrl })
+      : cleanUrl;
+    return { url, cleanUrl, blurDataUrl, focalPoint, info: optimizationNote || 'Subido a Firebase Storage' };
   } catch {
-    if (isImage && fallbackDataUrl && fallbackDataUrl.length < 380000) {
-      return {
-        url: fallbackDataUrl,
-        info: `${optimizationNote} · Guardada en formato comprimido`,
-      };
-    }
-    if (isImage) {
-      // Re-compress more aggressively to fit Firestore document cap
-      const tighter = await optimizeImageFile(file, 900, 0.65);
-      if (tighter.dataUrl.length < 380000) {
+    if (isImage && fallbackDataUrl) {
+      let compact = fallbackDataUrl;
+      let compactBlur = blurDataUrl;
+      if (compact.length >= 340000) {
+        const tighter = await optimizeImageFile(file, {
+          slot,
+          maxDimension: Math.min(960, MEDIA_SLOT_PRESETS[slot].maxDimension),
+          quality: 0.65,
+        });
+        compact = tighter.dataUrl;
+        compactBlur = tighter.blurDataUrl;
+      }
+      const urlWithMeta = encodeMediaUrlWithMeta(compact, {
+        fpX: focalPoint.x,
+        fpY: focalPoint.y,
+        blur: compactBlur,
+      });
+      if (urlWithMeta.length < 395000) {
+        if (onProgress) onProgress(100);
         return {
-          url: tighter.dataUrl,
-          info: `Comprimida (${Math.round(tighter.optimizedBytes / 1024)} KB) · Modo compacto`,
+          url: urlWithMeta,
+          cleanUrl: compact,
+          blurDataUrl: compactBlur,
+          focalPoint,
+          info: `${optimizationNote || 'Imagen comprimida'} · Guardada en formato compacto`,
         };
       }
     }
     throw new Error(
-      'No se pudo subir a Firebase Storage. Verifica las reglas de Storage o usa una URL externa directa.'
+      'No se pudo subir a Firebase Storage. Revisa las reglas de Storage o usa una URL externa directa.'
     );
   }
+}
+
+export async function uploadDocumentAsset(
+  file: File,
+  folder: string,
+  onProgress?: (pct: number) => void
+): Promise<{ url: string; fileName: string; sizeLabel: string }> {
+  const maxBytes = 50 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error('El documento supera el límite de 50 MB.');
+  }
+  const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const storageRef = ref(storage, `${folder}/${safeName}`);
+  const url = await new Promise<string>((resolve, reject) => {
+    const task = uploadBytesResumable(storageRef, file, {
+      contentType: file.type || 'application/pdf',
+    });
+    const timer = setTimeout(() => {
+      task.cancel();
+      reject(new Error('Tiempo de espera agotado al subir el documento.'));
+    }, 45000);
+    task.on(
+      'state_changed',
+      (snap) => {
+        if (onProgress && snap.totalBytes > 0) {
+          onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+        }
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+      async () => {
+        clearTimeout(timer);
+        try {
+          const dl = await getDownloadURL(task.snapshot.ref);
+          resolve(dl);
+        } catch (e) {
+          reject(e);
+        }
+      }
+    );
+  });
+
+  const kb = file.size / 1024;
+  const sizeLabel = kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`;
+  return { url, fileName: file.name, sizeLabel };
 }
 
 export function getEmbedUrl(url: string): { kind: 'iframe' | 'video' | 'link'; src: string } {
@@ -242,7 +529,6 @@ export function getEmbedUrl(url: string): { kind: 'iframe' | 'video' | 'link'; s
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return { kind: 'link', src: '' };
     }
-    // YouTube
     if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
       let vid = '';
       if (parsed.hostname.includes('youtu.be')) {
@@ -260,14 +546,12 @@ export function getEmbedUrl(url: string): { kind: 'iframe' | 'video' | 'link'; s
         return { kind: 'iframe', src: `https://www.youtube.com/embed/${vid}?rel=0` };
       }
     }
-    // Vimeo
     if (parsed.hostname.includes('vimeo.com')) {
       const vid = parsed.pathname.split('/').filter(Boolean).pop() || '';
       if (vid && /^\d+$/.test(vid)) {
         return { kind: 'iframe', src: `https://player.vimeo.com/video/${vid}` };
       }
     }
-    // Twitch
     if (parsed.hostname.includes('twitch.tv')) {
       const channel = parsed.pathname.split('/').filter(Boolean)[0] || '';
       const parent = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
@@ -275,14 +559,12 @@ export function getEmbedUrl(url: string): { kind: 'iframe' | 'video' | 'link'; s
         return { kind: 'iframe', src: `https://player.twitch.tv/?channel=${channel}&parent=${parent}` };
       }
     }
-    // Facebook Live / Video
     if (parsed.hostname.includes('facebook.com')) {
       return {
         kind: 'iframe',
         src: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(trimmed)}&show_text=false`,
       };
     }
-    // Direct video file
     if (/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i.test(parsed.pathname)) {
       return { kind: 'video', src: trimmed };
     }
@@ -296,6 +578,9 @@ export function sanitizeExternalUrl(url: string): string {
   const trimmed = (url || '').trim();
   if (!trimmed) return '';
   if (trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
     return trimmed;
   }
   try {
@@ -323,7 +608,37 @@ export function getEditorialKindLabel(kind?: string): string {
       return 'Reportaje';
     case 'multimedia':
       return 'Multimedia';
+    case 'entrevista':
+      return 'Entrevista';
+    case 'editorial':
+      return 'Editorial';
+    case 'explicativo':
+      return 'Explicativo';
+    case 'datos':
+      return 'Periodismo de datos';
+    case 'carta':
+      return 'Carta de lectores';
     case 'articulo':
+    default:
+      return 'Artículo';
+  }
+}
+
+export function getPostTypeLabel(type?: string): string {
+  switch (type) {
+    case 'gallery':
+      return 'Fotografía';
+    case 'video':
+      return 'Video';
+    case 'audio':
+      return 'Audio';
+    case 'infographic':
+      return 'Infografía';
+    case 'document':
+      return 'Documento / PDF';
+    case 'livestream':
+      return 'Archivo';
+    case 'article':
     default:
       return 'Artículo';
   }
@@ -355,16 +670,21 @@ function renderLogoSquarePng(img: HTMLImageElement, size: number): Promise<strin
   });
 }
 
-export function updateDynamicAppIcons(logoUrl?: string, siteName = 'Revista Digital Alternativa', primaryColor = '#B91C1C'): void {
+export function updateDynamicAppIcons(
+  logoUrl?: string,
+  siteName = 'Revista Digital Alternativa',
+  primaryColor = '#B91C1C'
+): void {
   if (typeof document === 'undefined') return;
-  const clean = sanitizeExternalUrl(logoUrl || '');
+  const cleanRaw = sanitizeExternalUrl(logoUrl || '');
+  const clean = parseMediaUrlMeta(cleanRaw).cleanUrl;
   const faviconEl = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
   const appleIconEl = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
 
   if (!clean) {
     if (faviconEl) {
-      faviconEl.type = 'image/svg+xml';
-      faviconEl.href = '/icon.svg';
+      faviconEl.type = 'image/png';
+      faviconEl.href = '/favicon.png';
     }
     if (appleIconEl) {
       appleIconEl.href = '/apple-touch-icon.png';
@@ -457,7 +777,7 @@ export function generateRssXml(posts: Post[], config: SiteConfig, origin: string
       <pubDate>${pubDate}</pubDate>
       <category>${escapeXml(post.categoryName)}</category>
       <author>${escapeXml(post.authorName)}</author>
-      <description>${escapeXml(post.subtitle || post.title)}</description>
+      <description>${escapeXml(post.seoDescription || post.subtitle || post.title)}</description>
     </item>`;
     })
     .join('\n');
@@ -478,7 +798,7 @@ export function generateSitemapXml(posts: Post[], origin: string): string {
   const staticPaths = [
     '/',
     '/buscar',
-    '/en-vivo',
+    '/colaboradores',
     '/unete',
     '/quienes-somos',
     '/como-trabajamos',

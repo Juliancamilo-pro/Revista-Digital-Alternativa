@@ -1,10 +1,11 @@
 import React from 'react';
-import { Bookmark, Camera, Headphones, Play, Radio } from 'lucide-react';
+import { Bookmark, Camera, FileSpreadsheet, FileText, Headphones, Play } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
 import { formatDateEs, getEditorialKindLabel } from '../lib/utils';
 import { Post } from '../types/editorial';
 import { EditorialImage } from './EditorialImage';
+import { VerifiedBadge } from './VerifiedBadge';
 
 interface ArticleCardProps {
   post: Post;
@@ -12,9 +13,23 @@ interface ArticleCardProps {
 }
 
 export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'standard' }) => {
-  const { navigate, setAuthModalOpen } = useSite();
+  const { navigate, setAuthModalOpen, isAuthorVerified, collaborators, siteConfig, adminIdentities } = useSite();
   const { firebaseUser, bookmarks, toggleBookmark } = useAuth();
   const isSaved = bookmarks.some((b) => b.postId === post.id);
+  const isCollabUid = collaborators.some((c) => c.uid === post.authorId);
+  const authorTargetId =
+    post.authorProfileId ||
+    (post.authorIdentityType === 'owner'
+      ? 'owner'
+      : post.authorIdentityType === 'magazine'
+      ? 'magazine'
+      : !isCollabUid &&
+        (post.authorName === siteConfig.siteName || post.authorName === adminIdentities.magazine.name)
+      ? 'magazine'
+      : !isCollabUid && post.authorName === adminIdentities.owner.name
+      ? 'owner'
+      : post.authorId);
+  const verified = isAuthorVerified(authorTargetId, post.authorIdentityType, post.authorVerified, post.authorName);
 
   const handleOpen = () => navigate(`/articulo/${post.slug}`);
 
@@ -38,8 +53,12 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
       ? 'Video'
       : post.type === 'audio'
       ? 'Podcast'
+      : post.type === 'infographic'
+      ? 'Infografía'
+      : post.type === 'document'
+      ? 'Documento'
       : post.type === 'livestream'
-      ? 'Archivo en vivo'
+      ? 'Archivo'
       : null;
 
   const FormatIcon =
@@ -49,8 +68,10 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
       ? Play
       : post.type === 'audio'
       ? Headphones
-      : post.type === 'livestream'
-      ? Radio
+      : post.type === 'infographic'
+      ? FileSpreadsheet
+      : post.type === 'document' || post.type === 'livestream'
+      ? FileText
       : null;
 
   const kindLabel = getEditorialKindLabel(post.editorialKind);
@@ -81,8 +102,11 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
             {post.title}
           </a>
         </h3>
-        <div className="mt-2 flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
-          <span className="font-medium text-neutral-800 dark:text-neutral-200">{post.authorName}</span>
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
+          <span className="font-medium text-neutral-800 dark:text-neutral-200 inline-flex items-center gap-1">
+            <span>{post.authorName}</span>
+            {verified && <VerifiedBadge size="xs" />}
+          </span>
           <span aria-hidden="true">·</span>
           <span className="font-tabular">{post.readTimeMinutes} min</span>
         </div>
@@ -100,18 +124,20 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
                 src={post.authorAvatar || post.coverImage}
                 alt={`Retrato de ${post.authorName}`}
                 fallbackTitle={post.authorName}
+                allowInDataSaver
               />
             </div>
             <div className="min-w-0">
               <a
-                href={`/colaborador/${post.authorId}`}
+                href={`/colaborador/${authorTargetId}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  navigate(`/colaborador/${post.authorId}`);
+                  navigate(`/colaborador/${authorTargetId}`);
                 }}
-                className="font-display text-base font-bold uppercase tracking-wide text-[#111111] dark:text-white hover:text-[var(--editorial-primary)] block truncate"
+                className="font-display text-base font-bold uppercase tracking-wide text-[#111111] dark:text-white hover:text-[var(--editorial-primary)] inline-flex items-center gap-1.5 max-w-full"
               >
-                {post.authorName}
+                <span className="truncate">{post.authorName}</span>
+                {verified && <VerifiedBadge size="xs" />}
               </a>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 {post.authorOutletType === 'medio' ? 'Medio colaborador' : 'Columnista independiente'} · {kindLabel}
@@ -165,10 +191,12 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
           src={post.coverImage}
           alt={post.coverAlt || post.title}
           fallbackTitle={post.title}
+          sensitive={post.sensitiveContent}
+          sensitiveWarning={post.sensitiveWarning}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
         {FormatIcon && (
-          <div className="absolute bottom-3 left-3 rounded-full bg-[#111111]/90 backdrop-blur-xs text-white px-3 py-1 flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider">
+          <div className="absolute bottom-3 left-3 z-10 rounded-full bg-[#111111]/90 text-white px-3 py-1 flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider">
             <FormatIcon className="w-3.5 h-3.5 text-[var(--editorial-primary)]" aria-hidden="true" />
             <span>{formatLabel}</span>
           </div>
@@ -224,14 +252,15 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
 
         <div className="mt-4 pt-3 border-t border-neutral-200 dark:border-neutral-800 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-600 dark:text-neutral-400">
           <a
-            href={`/colaborador/${post.authorId}`}
+            href={`/colaborador/${authorTargetId}`}
             onClick={(e) => {
               e.preventDefault();
-              navigate(`/colaborador/${post.authorId}`);
+              navigate(`/colaborador/${authorTargetId}`);
             }}
-            className="font-semibold text-neutral-900 dark:text-neutral-200 hover:underline"
+            className="font-semibold text-neutral-900 dark:text-neutral-200 hover:underline inline-flex items-center gap-1"
           >
-            {post.authorName}
+            <span>{post.authorName}</span>
+            {verified && <VerifiedBadge size="xs" />}
           </a>
           <span aria-hidden="true">·</span>
           <span>{formatDateEs(post.publishedAt || post.createdAt)}</span>

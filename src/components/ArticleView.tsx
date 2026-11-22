@@ -10,10 +10,14 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Download,
   ExternalLink,
   Eye,
+  FileText,
   Headphones,
   History,
+  Info,
+  ListChecks,
   Maximize2,
   Pause,
   Play,
@@ -24,6 +28,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useDataSaver } from '../context/DataSaverContext';
 import { FontSizeScale, useSite } from '../context/SiteContext';
 import { checkActionCooldown, generateSpamChallenge, markActionCooldown } from '../lib/appCheck';
 import { db } from '../lib/firebase';
@@ -34,6 +39,7 @@ import {
   generateId,
   getEditorialKindLabel,
   getEmbedUrl,
+  parseMediaUrlMeta,
   sanitizeExternalUrl,
   toDate,
 } from '../lib/utils';
@@ -42,8 +48,9 @@ import { ArticleCard } from './ArticleCard';
 import { CommentsSection } from './CommentsSection';
 import { EditorialImage } from './EditorialImage';
 import { QuoteShareModal } from './QuoteShareModal';
+import { VerifiedBadge } from './VerifiedBadge';
 
-/** Safe inline formatter for **bold**, *italic*, and [label](https://...) */
+/** Safe inline formatter for **bold**, *italic*, [label](https://...), and [n] */
 function renderInlineText(raw: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
   const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\(https?:\/\/[^)]+\)|\[\d+\])/g;
@@ -102,6 +109,8 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     myPosts,
     allPostsForAdmin,
     collaborators,
+    adminIdentities,
+    isAuthorVerified,
     siteConfig,
     fontSize,
     setFontSize,
@@ -111,6 +120,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     setAuthModalOpen,
   } = useSite();
 
+  const { isDataSaverActive } = useDataSaver();
   const { firebaseUser, bookmarks, toggleBookmark } = useAuth();
 
   const post = useMemo(() => {
@@ -118,14 +128,45 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     return pool.find((p) => p.slug === slug || p.id === slug) || null;
   }, [publishedPosts, myPosts, allPostsForAdmin, slug]);
 
+  const isLegacyAdminMatch = Boolean(
+    post &&
+      !collaborators.some((c) => c.uid === post.authorId) &&
+      (post.authorName === siteConfig.siteName ||
+        post.authorName === adminIdentities.magazine.name ||
+        post.authorName === adminIdentities.owner.name)
+  );
+
+  const isAdminIdentity = Boolean(
+    post &&
+      (post.authorIdentityType === 'owner' ||
+        post.authorIdentityType === 'magazine' ||
+        post.authorProfileId === 'owner' ||
+        post.authorProfileId === 'magazine' ||
+        isLegacyAdminMatch)
+  );
+
+  const adminIdentityKey: 'owner' | 'magazine' =
+    post?.authorProfileId === 'magazine' ||
+    post?.authorIdentityType === 'magazine' ||
+    (isLegacyAdminMatch &&
+      (post?.authorName === siteConfig.siteName ||
+        post?.authorName === adminIdentities.magazine.name))
+      ? 'magazine'
+      : 'owner';
+
+  const adminIdentity = useMemo(() => {
+    if (!post || !isAdminIdentity) return null;
+    return adminIdentities[adminIdentityKey];
+  }, [post, isAdminIdentity, adminIdentityKey, adminIdentities]);
+
   const [fetchedAuthor, setFetchedAuthor] = useState<CollaboratorPublic | null>(null);
-  const authorProfile = useMemo(() => {
-    if (!post) return null;
+  const collabProfile = useMemo(() => {
+    if (!post || isAdminIdentity) return null;
     return collaborators.find((c) => c.uid === post.authorId) || fetchedAuthor;
-  }, [collaborators, fetchedAuthor, post]);
+  }, [collaborators, fetchedAuthor, post, isAdminIdentity]);
 
   useEffect(() => {
-    if (!post || collaborators.some((c) => c.uid === post.authorId)) {
+    if (!post || isAdminIdentity || collaborators.some((c) => c.uid === post.authorId)) {
       setFetchedAuthor(null);
       return;
     }
@@ -136,12 +177,14 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         }
       })
       .catch(() => undefined);
-  }, [post?.authorId, collaborators]);
+  }, [post?.authorId, isAdminIdentity, collaborators]);
 
   const [scrollProgress, setScrollProgress] = useState(0);
   const [copied, setCopied] = useState(false);
   const [showSharePreview, setShowSharePreview] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [infographicOpen, setInfographicOpen] = useState(false);
+  const [mediaLoadedInDataSaver, setMediaLoadedInDataSaver] = useState(false);
   const [quoteShare, setQuoteShare] = useState<{ text: string; author?: string } | null>(null);
 
   // Report modal state + antispam
@@ -169,6 +212,12 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   const viewLoggedRef = useRef<string | null>(null);
   const enteredAtRef = useRef<number>(Date.now());
 
+  useEffect(() => {
+    setMediaLoadedInDataSaver(false);
+    setInfographicOpen(false);
+    setLightboxIdx(null);
+  }, [post?.id]);
+
   // Reading progress bar
   useEffect(() => {
     const onScroll = () => {
@@ -193,14 +242,26 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [setReadingMode]);
 
-  // Sync browser title while reading article
+  // Sync browser title & SEO description meta tags while reading article
   useEffect(() => {
     if (!post) return;
     document.title = `${post.title} – ${siteConfig.siteName}`;
+    const desc = post.seoDescription || post.subtitle || siteConfig.tagline || siteConfig.siteName;
+    const metas = [
+      document.querySelector('meta[name="description"]'),
+      document.querySelector('meta[property="og:description"]'),
+      document.querySelector('meta[name="twitter:description"]'),
+    ];
+    const prevContents = metas.map((m) => m?.getAttribute('content') || '');
+    metas.forEach((m) => m?.setAttribute('content', desc));
+
     return () => {
       document.title = `${siteConfig.siteName} – Periodismo Independiente y Crítico`;
+      metas.forEach((m, idx) => {
+        if (m && prevContents[idx]) m.setAttribute('content', prevContents[idx]);
+      });
     };
-  }, [post?.title, siteConfig.siteName]);
+  }, [post?.title, post?.seoDescription, post?.subtitle, siteConfig.siteName, siteConfig.tagline]);
 
   // Privacy-safe view increment & analytics event
   useEffect(() => {
@@ -243,18 +304,23 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [post?.id]);
 
-  // Keyboard navigation in lightbox
+  // Keyboard navigation in lightbox / infographic viewer
   useEffect(() => {
-    if (lightboxIdx === null || !post?.galleryItems) return;
-    const items = post.galleryItems;
+    if (lightboxIdx === null && !infographicOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setLightboxIdx(null);
-      if (e.key === 'ArrowRight') setLightboxIdx((i) => (i === null ? 0 : (i + 1) % items.length));
-      if (e.key === 'ArrowLeft') setLightboxIdx((i) => (i === null ? 0 : (i - 1 + items.length) % items.length));
+      if (e.key === 'Escape') {
+        setLightboxIdx(null);
+        setInfographicOpen(false);
+      }
+      if (lightboxIdx !== null && post?.galleryItems) {
+        const items = post.galleryItems;
+        if (e.key === 'ArrowRight') setLightboxIdx((i) => (i === null ? 0 : (i + 1) % items.length));
+        if (e.key === 'ArrowLeft') setLightboxIdx((i) => (i === null ? 0 : (i - 1 + items.length) % items.length));
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [lightboxIdx, post?.galleryItems]);
+  }, [lightboxIdx, infographicOpen, post?.galleryItems]);
 
   if (!post) {
     return (
@@ -306,9 +372,21 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     const fullText = [
       post.title,
       post.subtitle || '',
+      ...(post.keyPoints || []),
       ...post.blocks
-        .filter((b) => b.type === 'paragraph' || b.type === 'heading' || b.type === 'quote')
-        .map((b) => b.text || ''),
+        .filter(
+          (b) =>
+            b.type === 'paragraph' ||
+            b.type === 'heading' ||
+            b.type === 'quote' ||
+            b.type === 'callout' ||
+            b.type === 'list'
+        )
+        .map((b) => {
+          if (b.type === 'list') return (b.listItems || []).join('. ');
+          if (b.type === 'callout') return `${b.calloutTitle || ''}. ${b.text || ''}`;
+          return b.text || '';
+        }),
     ]
       .filter(Boolean)
       .join('. ')
@@ -417,10 +495,54 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   let paragraphIdx = 0;
 
   const embedInfo = post.mediaUrl ? getEmbedUrl(post.mediaUrl) : null;
-  const authorWeb = sanitizeExternalUrl(authorProfile?.websiteUrl || '');
-  const authorX = sanitizeExternalUrl(authorProfile?.socialTwitter || '');
-  const authorIg = sanitizeExternalUrl(authorProfile?.socialInstagram || '');
-  const authorYt = sanitizeExternalUrl(authorProfile?.socialYoutube || '');
+  const authorTargetId = isAdminIdentity ? adminIdentityKey : post.authorId;
+
+  const verified = isAuthorVerified(
+    authorTargetId,
+    post.authorIdentityType,
+    post.authorVerified,
+    post.authorName
+  );
+
+  const resolvedAuthorName = isAdminIdentity
+    ? adminIdentity?.name || post.authorName
+    : collabProfile?.name || post.authorName;
+  const resolvedAuthorOutlet = isAdminIdentity
+    ? adminIdentity?.outletType || post.authorOutletType
+    : collabProfile?.outletType || post.authorOutletType;
+  const resolvedAuthorAvatar = isAdminIdentity
+    ? adminIdentity?.avatarUrl || post.authorAvatar || siteConfig.logoUrl
+    : collabProfile?.showAvatar === true
+    ? collabProfile.avatarUrl || post.authorAvatar
+    : undefined;
+  const resolvedAuthorBio = isAdminIdentity
+    ? adminIdentity?.bio
+    : collabProfile?.showBio === true
+    ? collabProfile.bio
+    : undefined;
+
+  const authorWeb = isAdminIdentity
+    ? sanitizeExternalUrl(adminIdentity?.websiteUrl || '')
+    : collabProfile?.showWebsite === true
+    ? sanitizeExternalUrl(collabProfile.websiteUrl || '')
+    : '';
+  const authorX = isAdminIdentity
+    ? sanitizeExternalUrl(adminIdentity?.socialTwitter || '')
+    : collabProfile?.showSocialTwitter === true
+    ? sanitizeExternalUrl(collabProfile.socialTwitter || '')
+    : '';
+  const authorIg = isAdminIdentity
+    ? sanitizeExternalUrl(adminIdentity?.socialInstagram || '')
+    : collabProfile?.showSocialInstagram === true
+    ? sanitizeExternalUrl(collabProfile.socialInstagram || '')
+    : '';
+  const authorYt = isAdminIdentity
+    ? sanitizeExternalUrl(adminIdentity?.socialYoutube || '')
+    : collabProfile?.showSocialYoutube === true
+    ? sanitizeExternalUrl(collabProfile.socialYoutube || '')
+    : '';
+
+  const showMediaDeferredBanner = isDataSaverActive && !mediaLoadedInDataSaver;
 
   return (
     <article className="relative animate-[fade-up-enter_0.35s_ease-out]">
@@ -500,23 +622,31 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         {/* Byline & Metadata */}
         <div className="mt-6 py-4 border-y border-neutral-300 dark:border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 shrink-0 ring-2 ring-[var(--editorial-primary)]/20">
-              <EditorialImage
-                src={authorProfile?.avatarUrl || post.authorAvatar || post.coverImage}
-                alt={post.authorName}
-                fallbackTitle={post.authorName}
-              />
+            <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 shrink-0 ring-2 ring-[var(--editorial-primary)]/20 flex items-center justify-center">
+              {resolvedAuthorAvatar ? (
+                <EditorialImage
+                  src={resolvedAuthorAvatar}
+                  alt={resolvedAuthorName}
+                  fallbackTitle={resolvedAuthorName}
+                  allowInDataSaver
+                />
+              ) : (
+                <span className="font-display text-base font-extrabold text-neutral-700 dark:text-neutral-200">
+                  {resolvedAuthorName.slice(0, 1).toUpperCase()}
+                </span>
+              )}
             </div>
             <div>
               <a
-                href={`/colaborador/${post.authorId}`}
+                href={`/colaborador/${authorTargetId}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  navigate(`/colaborador/${post.authorId}`);
+                  navigate(`/colaborador/${authorTargetId}`);
                 }}
-                className="font-display text-base font-bold uppercase tracking-wide hover:text-[var(--editorial-primary)]"
+                className="inline-flex items-center gap-1.5 font-display text-base font-bold uppercase tracking-wide hover:text-[var(--editorial-primary)]"
               >
-                {post.authorName}
+                <span>{resolvedAuthorName}</span>
+                {verified && <VerifiedBadge size="xs" />}
               </a>
               <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
                 <span>Publicado: {formatDateEs(post.publishedAt || post.createdAt, true)}</span>
@@ -642,16 +772,39 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
         </div>
 
-        {/* Cover Media */}
+        {/* Cover Media / Zoomable Infographic */}
         {post.coverImage && post.type !== 'video' && (
           <figure className="mt-8">
-            <div className="aspect-[16/9] rounded-2xl overflow-hidden bg-neutral-900 shadow-lg">
+            <div
+              className={`relative rounded-2xl overflow-hidden bg-neutral-900 shadow-lg ${
+                post.type === 'infographic' ? 'cursor-zoom-in' : 'aspect-[16/9]'
+              }`}
+              onClick={() => {
+                if (post.type === 'infographic') setInfographicOpen(true);
+              }}
+            >
               <EditorialImage
                 src={post.coverImage}
                 alt={post.coverAlt || post.title}
                 fallbackTitle={post.title}
-                className="w-full h-full object-cover"
+                priority
+                sensitive={post.sensitiveContent}
+                sensitiveWarning={post.sensitiveWarning}
+                className={post.type === 'infographic' ? 'w-full h-auto object-contain' : 'w-full h-full object-cover'}
               />
+              {post.type === 'infographic' && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setInfographicOpen(true);
+                  }}
+                  className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/80 text-white font-display text-xs font-bold uppercase tracking-wider shadow cursor-pointer hover:bg-black"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Ampliar infografía</span>
+                </button>
+              )}
             </div>
             {(post.coverAlt || post.coverCredit) && (
               <figcaption className="mt-2.5 text-xs text-neutral-600 dark:text-neutral-400 italic flex flex-wrap justify-between gap-2">
@@ -662,10 +815,56 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </figure>
         )}
 
-        {/* Video Player if type === 'video' */}
-        {post.type === 'video' && embedInfo && (
+        {/* Downloadable Document / PDF Card */}
+        {post.type === 'document' && sanitizeExternalUrl(post.mediaUrl || '') && (
+          <div className="mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-[var(--editorial-primary)]/10 text-[var(--editorial-primary)] flex items-center justify-center shrink-0">
+                <FileText className="w-5 h-5" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                  Documento adjunto para lectura y descarga
+                </p>
+                <p className="font-display text-lg font-bold mt-0.5">
+                  {post.documentTitle || post.title}
+                </p>
+              </div>
+            </div>
+            <a
+              href={sanitizeExternalUrl(post.mediaUrl || '')}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider shrink-0 transition-colors"
+            >
+              <Download className="w-4 h-4" aria-hidden="true" />
+              <span>Abrir / Descargar PDF</span>
+            </a>
+          </div>
+        )}
+
+        {/* Video Player if type === 'video' (with Data Saver deferral) */}
+        {post.type === 'video' && embedInfo && embedInfo.src && (
           <div className="mt-8 rounded-2xl overflow-hidden border border-neutral-300 dark:border-neutral-800 bg-black shadow-lg">
-            {embedInfo.kind === 'iframe' ? (
+            {showMediaDeferredBanner ? (
+              <div className="p-10 text-center text-white space-y-3 bg-neutral-950">
+                <p className="font-display text-xs font-bold uppercase tracking-widest text-[#FCA5A5]">
+                  Modo ahorro de datos activo
+                </p>
+                <p className="text-sm text-neutral-300">
+                  El video externo no se cargó automáticamente para cuidar tu consumo móvil.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMediaLoadedInDataSaver(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white text-[#111111] font-display text-xs font-bold uppercase tracking-wider cursor-pointer hover:bg-neutral-200"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Cargar reproductor de video</span>
+                </button>
+              </div>
+            ) : embedInfo.kind === 'iframe' ? (
               <div className="aspect-video">
                 <iframe
                   src={embedInfo.src}
@@ -676,7 +875,13 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 />
               </div>
             ) : embedInfo.kind === 'video' ? (
-              <video src={embedInfo.src} controls className="w-full aspect-video" poster={sanitizeExternalUrl(post.coverImage || '')} />
+              <video
+                src={embedInfo.src}
+                controls
+                preload={isDataSaverActive ? 'none' : 'metadata'}
+                className="w-full aspect-video"
+                poster={sanitizeExternalUrl(parseMediaUrlMeta(post.coverImage || '').cleanUrl)}
+              />
             ) : (
               <div className="p-8 text-center text-white space-y-2">
                 <p className="text-sm">Enlace de video externo:</p>
@@ -688,42 +893,61 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
         )}
 
-        {/* Audio / Podcast Player if type === 'audio' */}
-        {post.type === 'audio' && post.mediaUrl && (
+        {/* Audio / Podcast Player if type === 'audio' (with Data Saver deferral) */}
+        {post.type === 'audio' && sanitizeExternalUrl(post.mediaUrl || '') && (
           <div className="mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[#111111] text-white p-5 space-y-3 shadow-lg">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-wider text-[#FCA5A5]">
                 <Headphones className="w-4 h-4" aria-hidden="true" />
                 <span>Reproductor de pódcast y crónica sonora</span>
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-tabular">
-                <span>Velocidad:</span>
-                {[0.75, 1, 1.25, 1.5, 2].map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => {
-                      setAudioRate(r);
-                      if (audioRef.current) audioRef.current.playbackRate = r;
-                    }}
-                    className={`px-2.5 py-0.5 rounded-full border cursor-pointer ${
-                      audioRate === r ? 'bg-[var(--editorial-primary)] border-[var(--editorial-primary)] text-white' : 'border-neutral-700 text-neutral-300'
-                    }`}
-                  >
-                    {r}x
-                  </button>
-                ))}
-              </div>
+              {!showMediaDeferredBanner && (
+                <div className="flex items-center gap-1.5 text-xs font-tabular">
+                  <span>Velocidad:</span>
+                  {[0.75, 1, 1.25, 1.5, 2].map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => {
+                        setAudioRate(r);
+                        if (audioRef.current) audioRef.current.playbackRate = r;
+                      }}
+                      className={`px-2.5 py-0.5 rounded-full border cursor-pointer ${
+                        audioRate === r ? 'bg-[var(--editorial-primary)] border-[var(--editorial-primary)] text-white' : 'border-neutral-700 text-neutral-300'
+                      }`}
+                    >
+                      {r}x
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <audio
-              ref={audioRef}
-              controls
-              src={sanitizeExternalUrl(post.mediaUrl)}
-              onPlay={() => {
-                if (audioRef.current) audioRef.current.playbackRate = audioRate;
-              }}
-              className="w-full"
-            />
+            {showMediaDeferredBanner ? (
+              <div className="pt-1 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-neutral-300">
+                  Ahorro de datos activo: pulsa para cargar el archivo de audio.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMediaLoadedInDataSaver(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white text-[#111111] font-display text-xs font-bold uppercase cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Cargar audio</span>
+                </button>
+              </div>
+            ) : (
+              <audio
+                ref={audioRef}
+                controls
+                preload="metadata"
+                src={sanitizeExternalUrl(post.mediaUrl || '')}
+                onPlay={() => {
+                  if (audioRef.current) audioRef.current.playbackRate = audioRate;
+                }}
+                className="w-full"
+              />
+            )}
           </div>
         )}
 
@@ -763,6 +987,21 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               ))}
             </div>
           </section>
+        )}
+
+        {/* Key Points Summary Box */}
+        {post.keyPoints && post.keyPoints.length > 0 && (
+          <aside className="max-w-[68ch] mx-auto mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2.5">
+            <h2 className="inline-flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
+              <ListChecks className="w-4 h-4" aria-hidden="true" />
+              <span>Puntos clave</span>
+            </h2>
+            <ul className="list-disc pl-5 space-y-1.5 text-sm sm:text-base text-neutral-800 dark:text-neutral-200 leading-relaxed">
+              {post.keyPoints.map((kp, i) => (
+                <li key={i}>{renderInlineText(kp)}</li>
+              ))}
+            </ul>
+          </aside>
         )}
 
         {/* Article Body Column (65-75ch measure) */}
@@ -808,7 +1047,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                         onClick={() =>
                           setQuoteShare({
                             text: block.text || '',
-                            author: block.author || post.authorName,
+                            author: block.author || resolvedAuthorName,
                           })
                         }
                         className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 hover:border-[var(--editorial-primary)] hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
@@ -819,6 +1058,85 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                     </div>
                   </blockquote>
                 );
+              case 'callout': {
+                const tone = block.calloutTone || 'info';
+                const cardClass =
+                  tone === 'warning'
+                    ? 'border-amber-500/40 bg-amber-50/70 dark:bg-amber-950/20'
+                    : tone === 'key_fact'
+                    ? 'border-[var(--editorial-primary)]/35 bg-neutral-100/90 dark:bg-neutral-900'
+                    : 'border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414]';
+                const badgeText =
+                  tone === 'warning' ? 'Advertencia' : tone === 'key_fact' ? 'Dato clave' : 'Contexto';
+                return (
+                  <aside key={block.id} className={`my-7 rounded-2xl border p-5 space-y-2 ${cardClass}`}>
+                    <div className="flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
+                      {tone === 'warning' ? (
+                        <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <Info className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      )}
+                      <span>{block.calloutTitle || badgeText}</span>
+                    </div>
+                    {block.text && (
+                      <p className="text-base leading-relaxed text-neutral-800 dark:text-neutral-200">
+                        {renderInlineText(block.text)}
+                      </p>
+                    )}
+                  </aside>
+                );
+              }
+              case 'list': {
+                const items = (block.listItems || []).filter((item) => item.trim().length > 0);
+                if (items.length === 0) return null;
+                return block.listStyle === 'ordered' ? (
+                  <ol key={block.id} className="list-decimal pl-6 space-y-2">
+                    {items.map((item, idx) => (
+                      <li key={idx}>{renderInlineText(item)}</li>
+                    ))}
+                  </ol>
+                ) : (
+                  <ul key={block.id} className="list-disc pl-6 space-y-2">
+                    {items.map((item, idx) => (
+                      <li key={idx}>{renderInlineText(item)}</li>
+                    ))}
+                  </ul>
+                );
+              }
+              case 'document': {
+                const safeDocUrl = sanitizeExternalUrl(block.documentUrl || '');
+                if (!safeDocUrl) return null;
+                return (
+                  <div
+                    key={block.id}
+                    className="my-7 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <FileText className="w-5 h-5 text-[var(--editorial-primary)] shrink-0 mt-0.5" aria-hidden="true" />
+                      <div>
+                        <p className="font-display text-base font-bold">
+                          {block.documentTitle || 'Documento adjunto'}
+                        </p>
+                        {block.documentDescription && (
+                          <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
+                            {block.documentDescription}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <a
+                      href={safeDocUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-400 dark:border-neutral-700 font-display text-xs font-bold uppercase tracking-wider shrink-0 hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Descargar PDF</span>
+                    </a>
+                  </div>
+                );
+              }
               case 'image':
                 return (
                   <figure key={block.id} className="my-8">
@@ -928,7 +1246,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           {footnotes.length > 0 && (
             <aside className="mt-10 pt-6 border-t border-neutral-300 dark:border-neutral-800 space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
               <h3 className="font-display text-xs font-bold uppercase tracking-widest text-neutral-900 dark:text-white">
-                Notas al pie y fuentes
+                Notas al pie y aclaraciones
               </h3>
               {footnotes.map((fn, i) => (
                 <p key={fn.id} id={`nota-${fn.footnoteNumber || i + 1}`} className="leading-relaxed">
@@ -942,6 +1260,35 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           )}
         </div>
 
+        {/* Sources Consulted */}
+        {post.sources && post.sources.length > 0 && (
+          <section className="max-w-[68ch] mx-auto mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2.5">
+            <h3 className="font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
+              Fuentes consultadas
+            </h3>
+            <ul className="space-y-1.5 text-sm">
+              {post.sources.map((src, idx) => {
+                const safeUrl = sanitizeExternalUrl(src.url || '');
+                return (
+                  <li key={idx} className="flex items-start justify-between gap-3">
+                    <span className="text-neutral-800 dark:text-neutral-200">• {src.label}</span>
+                    {safeUrl && (
+                      <a
+                        href={safeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-display font-bold uppercase text-[var(--editorial-primary)] hover:underline shrink-0"
+                      >
+                        Consultar <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
         {/* Corrections & Transparency Box */}
         {post.corrections && post.corrections.length > 0 && (
           <section className="max-w-[68ch] mx-auto mt-8 rounded-2xl border border-amber-500/40 bg-amber-50/70 dark:bg-amber-950/20 p-5 space-y-3">
@@ -949,9 +1296,9 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               <History className="w-4 h-4" aria-hidden="true" />
               <span>Historial de correcciones y actualizaciones</span>
             </h3>
-            <ul className="space-y-2.5 text-sm">
+            <ul className="space-y-2.5 text-sm divide-y divide-amber-500/20">
               {post.corrections.map((c, idx) => (
-                <li key={idx} className="border-l-2 border-amber-500 pl-3 space-y-0.5">
+                <li key={idx} className="pt-2.5 first:pt-0 space-y-0.5">
                   <p className="text-xs font-display font-bold uppercase tracking-wider text-neutral-500">
                     {c.date} · {c.editorName}
                   </p>
@@ -1015,7 +1362,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               onClick={() =>
                 setQuoteShare({
                   text: post.subtitle || post.title,
-                  author: post.authorName,
+                  author: resolvedAuthorName,
                 })
               }
               className="px-3 py-1 rounded-full border border-[var(--editorial-primary)]/40 text-[var(--editorial-primary)] hover:bg-[var(--editorial-primary)] hover:text-white inline-flex items-center gap-1 cursor-pointer transition-colors"
@@ -1053,7 +1400,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 {siteConfig.siteName} · Tarjeta para redes sociales
               </p>
               <p className="font-display text-lg font-bold leading-snug">{post.title}</p>
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2">{post.subtitle}</p>
+              <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2">{post.seoDescription || post.subtitle}</p>
             </div>
           </div>
         )}
@@ -1062,31 +1409,43 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         <div className="max-w-[68ch] mx-auto mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 shrink-0 ring-2 ring-[var(--editorial-primary)]/25">
-                <EditorialImage
-                  src={authorProfile?.avatarUrl || post.authorAvatar || post.coverImage}
-                  alt={post.authorName}
-                  fallbackTitle={post.authorName}
-                />
+              <div className="w-14 h-14 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 shrink-0 ring-2 ring-[var(--editorial-primary)]/25 flex items-center justify-center">
+                {resolvedAuthorAvatar ? (
+                  <EditorialImage
+                    src={resolvedAuthorAvatar}
+                    alt={resolvedAuthorName}
+                    fallbackTitle={resolvedAuthorName}
+                    allowInDataSaver
+                  />
+                ) : (
+                  <span className="font-display text-lg font-extrabold text-neutral-700 dark:text-neutral-200">
+                    {resolvedAuthorName.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
               </div>
               <div>
                 <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                   Sobre la firma ·{' '}
-                  {(authorProfile?.outletType || post.authorOutletType) === 'medio'
+                  {isAdminIdentity
+                    ? adminIdentity?.roleTitle || (adminIdentity?.id === 'magazine' ? 'Dirección Editorial' : 'Fundador y dirección')
+                    : resolvedAuthorOutlet === 'medio'
                     ? 'Medio o revista aliada'
                     : 'Periodista independiente'}
                 </p>
-                <p className="font-display text-2xl font-bold mt-0.5">{authorProfile?.name || post.authorName}</p>
-                {authorProfile?.bio && (
+                <p className="inline-flex items-center gap-1.5 font-display text-2xl font-bold mt-0.5">
+                  <span>{resolvedAuthorName}</span>
+                  {verified && <VerifiedBadge size="sm" />}
+                </p>
+                {resolvedAuthorBio && (
                   <p className="text-sm text-neutral-700 dark:text-neutral-300 mt-1.5 leading-relaxed">
-                    {authorProfile.bio}
+                    {resolvedAuthorBio}
                   </p>
                 )}
               </div>
             </div>
             <button
               type="button"
-              onClick={() => navigate(`/colaborador/${post.authorId}`)}
+              onClick={() => navigate(`/colaborador/${authorTargetId}`)}
               className="px-5 py-2.5 rounded-full border border-[#111111] dark:border-neutral-600 font-display text-xs font-bold uppercase tracking-wider whitespace-nowrap shrink-0 hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black cursor-pointer transition-colors self-start sm:self-center"
             >
               Ver perfil y notas
@@ -1127,7 +1486,13 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
 
         {/* Comments */}
         <div className="max-w-[68ch] mx-auto">
-          <CommentsSection post={post} />
+          {post.commentsEnabled === false ? (
+            <p className="mt-10 pt-6 border-t border-neutral-300 dark:border-neutral-800 text-sm text-neutral-500 text-center">
+              Los comentarios están deshabilitados para esta publicación.
+            </p>
+          ) : (
+            <CommentsSection post={post} />
+          )}
         </div>
 
         {/* Related Articles */}
@@ -1144,6 +1509,33 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </section>
         )}
       </div>
+
+      {/* Zoomable Infographic Lightbox */}
+      {infographicOpen && post.coverImage && (
+        <div className="fixed inset-0 z-50 bg-black/95 text-white flex flex-col p-4 sm:p-8" role="dialog" aria-modal="true">
+          <div className="flex items-center justify-between">
+            <span className="font-display text-xs uppercase tracking-widest text-neutral-300">
+              Infografía ampliada · {post.title}
+            </span>
+            <button
+              type="button"
+              onClick={() => setInfographicOpen(false)}
+              aria-label="Cerrar visor"
+              className="p-2 rounded-full hover:bg-neutral-800 cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto flex items-center justify-center my-4">
+            <img
+              src={sanitizeExternalUrl(parseMediaUrlMeta(post.coverImage).cleanUrl)}
+              alt={post.coverAlt || post.title}
+              referrerPolicy="no-referrer"
+              className="max-w-full max-h-full object-contain rounded-xl"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Lightbox Modal for Galleries */}
       {lightboxIdx !== null && post.galleryItems && post.galleryItems[lightboxIdx] && (
@@ -1171,7 +1563,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               <ChevronLeft className="w-6 h-6" />
             </button>
             <img
-              src={sanitizeExternalUrl(post.galleryItems[lightboxIdx].url)}
+              src={sanitizeExternalUrl(parseMediaUrlMeta(post.galleryItems[lightboxIdx].url).cleanUrl)}
               alt={post.galleryItems[lightboxIdx].alt}
               referrerPolicy="no-referrer"
               className="max-h-[75vh] max-w-full object-contain rounded-xl"

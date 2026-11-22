@@ -17,7 +17,7 @@ export default defineConfig(() => {
           id: '/',
           name: 'Revista Digital Alternativa',
           short_name: 'Alternativa',
-          description: 'Periodismo independiente de izquierda: investigación, opinión, crónica y transmisiones en vivo.',
+          description: 'Periodismo independiente de izquierda: investigación, opinión, crónica y análisis crítico.',
           theme_color: '#B91C1C',
           background_color: '#111111',
           display: 'standalone',
@@ -46,6 +46,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg}'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
@@ -80,8 +81,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
-          type: 'module',
+          enabled: false,
         },
       }),
       // Copies src/assets into dist/ so root-relative URLs like

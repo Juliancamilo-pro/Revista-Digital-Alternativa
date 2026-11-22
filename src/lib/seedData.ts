@@ -1,21 +1,60 @@
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import { logAdminActivity } from './activityLog';
 import { db } from './firebase';
-import { Category, HomepageSectionConfig, SiteConfig } from '../types/editorial';
+import { AdminPublicIdentity, Category, HomepageSectionConfig, SiteConfig } from '../types/editorial';
 
 export const DEFAULT_HOMEPAGE_SECTIONS: HomepageSectionConfig[] = [
-  { id: 'sec_live', type: 'live', title: 'En vivo y agenda', enabled: true, order: 0 },
-  { id: 'sec_hero', type: 'hero', title: 'Apertura principal', enabled: true, order: 1 },
-  { id: 'sec_featured', type: 'featured', title: 'Notas destacadas', enabled: true, order: 2 },
-  { id: 'sec_breaking', type: 'breaking', title: 'Última hora', enabled: true, order: 3 },
-  { id: 'sec_most_read', type: 'most_read', title: 'Lo más leído', enabled: true, order: 4 },
-  { id: 'sec_opinion', type: 'opinion', title: 'Opinión y columnas', enabled: true, order: 5 },
-  { id: 'sec_series', type: 'series', title: 'Series y especiales', enabled: true, order: 6 },
-  { id: 'sec_galleries', type: 'galleries', title: 'Fotografía documental', enabled: true, order: 7 },
-  { id: 'sec_videos', type: 'videos', title: 'Video y crónicas', enabled: true, order: 8 },
-  { id: 'sec_audio', type: 'audio', title: 'Audio y pódcast', enabled: true, order: 9 },
+  { id: 'sec_hero', type: 'hero', title: 'Apertura principal', enabled: true, order: 0 },
+  { id: 'sec_featured', type: 'featured', title: 'Notas destacadas', enabled: true, order: 1 },
+  { id: 'sec_breaking', type: 'breaking', title: 'Última hora', enabled: true, order: 2 },
+  { id: 'sec_most_read', type: 'most_read', title: 'Lo más leído', enabled: true, order: 3 },
+  { id: 'sec_opinion', type: 'opinion', title: 'Opinión y columnas', enabled: true, order: 4 },
+  { id: 'sec_series', type: 'series', title: 'Series y especiales', enabled: true, order: 5 },
+  { id: 'sec_galleries', type: 'galleries', title: 'Fotografía documental', enabled: true, order: 6 },
+  { id: 'sec_videos', type: 'videos', title: 'Video y crónicas', enabled: true, order: 7 },
+  { id: 'sec_audio', type: 'audio', title: 'Audio y pódcast', enabled: true, order: 8 },
+  { id: 'sec_collaborators', type: 'collaborators', title: 'Conozcan a nuestros colaboradores', enabled: true, order: 9 },
   { id: 'sec_feed', type: 'categories_feed', title: 'Todas las publicaciones', enabled: true, order: 10 },
 ];
+
+export const DEFAULT_ADMIN_IDENTITIES: Record<'owner' | 'magazine', Omit<AdminPublicIdentity, 'updatedAt'>> = {
+  owner: {
+    id: 'owner',
+    identityType: 'owner',
+    name: 'Dirección Editorial',
+    roleTitle: 'Fundador/a y Dirección',
+    outletType: 'independiente',
+    bio: '',
+    avatarUrl: '',
+    coverUrl: '',
+    websiteUrl: '',
+    socialTwitter: '',
+    socialInstagram: '',
+    socialYoutube: '',
+    publicEmail: '',
+    location: '',
+    topics: [],
+    showInDirectory: true,
+  },
+  magazine: {
+    id: 'magazine',
+    identityType: 'magazine',
+    name: 'Revista Digital Alternativa',
+    roleTitle: 'Medio editorial independiente',
+    outletType: 'medio',
+    bio: '',
+    avatarUrl: '/brand-mark.png',
+    coverUrl: '',
+    websiteUrl: '',
+    socialTwitter: '',
+    socialInstagram: '',
+    socialYoutube: '',
+    publicEmail: '',
+    location: '',
+    topics: [],
+    showInDirectory: true,
+  },
+};
 
 export const DEFAULT_SITE_CONFIG: Omit<SiteConfig, 'updatedAt'> = {
   siteName: 'Revista Digital Alternativa',
@@ -59,7 +98,6 @@ export const DEFAULT_CATEGORIES: Array<Omit<Category, 'createdAt' | 'updatedAt'>
   { id: 'cat_fotografia', name: 'Fotografía', slug: 'fotografia', description: 'Fotorreportajes y ensayos visuales documentales.', order: 11 },
   { id: 'cat_video', name: 'Video', slug: 'video', description: 'Documentales cortos, entrevistas y coberturas.', order: 12 },
   { id: 'cat_audio', name: 'Audio y Podcast', slug: 'audio-y-podcast', description: 'Pódcasts semanales y crónicas sonoras.', order: 13 },
-  { id: 'cat_envivo', name: 'En Vivo', slug: 'en-vivo', description: 'Foros, asambleas y transmisiones especiales.', order: 14 },
 ];
 
 const LEGACY_SAMPLE_POST_IDS = [
@@ -69,7 +107,6 @@ const LEGACY_SAMPLE_POST_IDS = [
   'sample_post_opinion',
   'sample_post_podcast',
 ];
-const LEGACY_SAMPLE_STREAM_IDS = ['sample_stream_foro'];
 const LEGACY_SAMPLE_SERIES_IDS = ['ser_venas_territorio', 'ser_trabajo_dignidad'];
 const LEGACY_SOCIAL_DEFAULTS: Record<string, string> = {
   twitter: 'https://x.com',
@@ -80,6 +117,27 @@ const LEGACY_SOCIAL_DEFAULTS: Record<string, string> = {
 };
 
 let cleanupPromise: Promise<void> | null = null;
+
+function sanitizeHomepageSections(sections?: HomepageSectionConfig[]): HomepageSectionConfig[] {
+  if (!Array.isArray(sections) || sections.length === 0) return DEFAULT_HOMEPAGE_SECTIONS;
+  const filtered = sections.filter((s) => s.type !== 'live');
+  if (!filtered.some((s) => s.type === 'collaborators')) {
+    const feedIdx = filtered.findIndex((s) => s.type === 'categories_feed');
+    const collabSection: HomepageSectionConfig = {
+      id: 'sec_collaborators',
+      type: 'collaborators',
+      title: 'Conozcan a nuestros colaboradores',
+      enabled: true,
+      order: feedIdx >= 0 ? feedIdx : filtered.length,
+    };
+    if (feedIdx >= 0) {
+      filtered.splice(feedIdx, 0, collabSection);
+    } else {
+      filtered.push(collabSection);
+    }
+  }
+  return filtered.map((s, idx) => ({ ...s, order: idx }));
+}
 
 function buildCleanSiteConfigPayload(source: Partial<SiteConfig>): Record<string, unknown> {
   const rawName = (source.siteName || DEFAULT_SITE_CONFIG.siteName).trim().slice(0, 100);
@@ -111,18 +169,15 @@ function buildCleanSiteConfigPayload(source: Partial<SiteConfig>): Record<string
     socialLinks: source.socialLinks && typeof source.socialLinks === 'object' ? source.socialLinks : {},
     heroPostId: (source.heroPostId || '').slice(0, 128),
     featuredPostIds: Array.isArray(source.featuredPostIds) ? source.featuredPostIds.slice(0, 12) : [],
-    homepageSections:
-      Array.isArray(source.homepageSections) && source.homepageSections.length > 0
-        ? source.homepageSections.slice(0, 20)
-        : DEFAULT_HOMEPAGE_SECTIONS,
+    homepageSections: sanitizeHomepageSections(source.homepageSections),
     updatedAt: serverTimestamp(),
   };
 }
 
 /**
  * Limpieza segura y única cuando el administrador inicia sesión.
- * También garantiza que site_config/main y las categorías iniciales existan si la base de datos es nueva,
- * sin tocar cuenta admin, usuarios, colaboradores, código de invitación ni contenido real.
+ * Conserva intactos usuarios, colaboradores, código de invitación, categorías y colecciones históricas.
+ * También asegura las identidades públicas del administrador (/admin_identities/owner y /admin_identities/magazine) si faltan.
  */
 export async function runOneTimeAdminSampleCleanup(adminUid: string, adminName: string): Promise<void> {
   if (!adminUid) return;
@@ -131,15 +186,37 @@ export async function runOneTimeAdminSampleCleanup(adminUid: string, adminName: 
   cleanupPromise = (async () => {
     try {
       const cleanupRef = doc(db, 'site_meta', 'cleanup');
-      const [cleanupSnap, configSnap, catsSnap] = await Promise.all([
+      const [cleanupSnap, configSnap, catsSnap, ownerIdSnap, magIdSnap] = await Promise.all([
         getDoc(cleanupRef).catch(() => null),
         getDoc(doc(db, 'site_config', 'main')).catch(() => null),
         getDocs(collection(db, 'categories')).catch(() => null),
+        getDoc(doc(db, 'admin_identities', 'owner')).catch(() => null),
+        getDoc(doc(db, 'admin_identities', 'magazine')).catch(() => null),
       ]);
+
+      // Ensure dual admin public identities exist without overwriting existing edits
+      const ensureIdentitiesBatch = writeBatch(db);
+      let needIdentityCommit = false;
+      if (ownerIdSnap && !ownerIdSnap.exists()) {
+        ensureIdentitiesBatch.set(doc(db, 'admin_identities', 'owner'), {
+          ...DEFAULT_ADMIN_IDENTITIES.owner,
+          updatedAt: serverTimestamp(),
+        });
+        needIdentityCommit = true;
+      }
+      if (magIdSnap && !magIdSnap.exists()) {
+        ensureIdentitiesBatch.set(doc(db, 'admin_identities', 'magazine'), {
+          ...DEFAULT_ADMIN_IDENTITIES.magazine,
+          updatedAt: serverTimestamp(),
+        });
+        needIdentityCommit = true;
+      }
+      if (needIdentityCommit) {
+        await ensureIdentitiesBatch.commit().catch(() => undefined);
+      }
 
       const cleanupAlreadyDone = Boolean(cleanupSnap?.exists() && cleanupSnap.data()?.done === true);
 
-      // Si la base de datos es nueva y aún no existe site_config/main o categories, inicializarlos con valores limpios
       if (cleanupAlreadyDone) {
         if ((configSnap && !configSnap.exists()) || (catsSnap && catsSnap.empty)) {
           const initBatch = writeBatch(db);
@@ -160,31 +237,19 @@ export async function runOneTimeAdminSampleCleanup(adminUid: string, adminName: 
         return;
       }
 
-      const [samplePostsQuery, sampleStreamsQuery] = await Promise.all([
-        getDocs(query(collection(db, 'posts'), where('isSample', '==', true))).catch(() => null),
-        getDocs(query(collection(db, 'livestreams'), where('isSample', '==', true))).catch(() => null),
-      ]);
+      const samplePostsQuery = await getDocs(query(collection(db, 'posts'), where('isSample', '==', true))).catch(() => null);
 
       const postIdsToDelete = new Set<string>();
-      const streamIdsToDelete = new Set<string>();
       const seriesIdsToDelete = new Set<string>();
 
       if (samplePostsQuery) {
         samplePostsQuery.docs.forEach((d) => postIdsToDelete.add(d.id));
       }
-      if (sampleStreamsQuery) {
-        sampleStreamsQuery.docs.forEach((d) => streamIdsToDelete.add(d.id));
-      }
 
-      // Verificar explícitamente los IDs legados de muestra
       await Promise.all([
         ...LEGACY_SAMPLE_POST_IDS.map(async (id) => {
           const snap = await getDoc(doc(db, 'posts', id)).catch(() => null);
           if (snap?.exists()) postIdsToDelete.add(id);
-        }),
-        ...LEGACY_SAMPLE_STREAM_IDS.map(async (id) => {
-          const snap = await getDoc(doc(db, 'livestreams', id)).catch(() => null);
-          if (snap?.exists()) streamIdsToDelete.add(id);
         }),
         ...LEGACY_SAMPLE_SERIES_IDS.map(async (id) => {
           const snap = await getDoc(doc(db, 'series', id)).catch(() => null);
@@ -197,10 +262,6 @@ export async function runOneTimeAdminSampleCleanup(adminUid: string, adminName: 
 
       postIdsToDelete.forEach((id) => {
         batch.delete(doc(db, 'posts', id));
-        deletedCount += 1;
-      });
-      streamIdsToDelete.forEach((id) => {
-        batch.delete(doc(db, 'livestreams', id));
         deletedCount += 1;
       });
       seriesIdsToDelete.forEach((id) => {

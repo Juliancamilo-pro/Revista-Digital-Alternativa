@@ -16,7 +16,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   initialTag,
   initialSeriesSlug,
 }) => {
-  const { publishedPosts, categories, collaborators, seriesList, navigate } = useSite();
+  const { publishedPosts, categories, collaborators, adminIdentities, seriesList, navigate } = useSite();
 
   const [queryText, setQueryText] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | PostType>('all');
@@ -74,7 +74,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       if (typeFilter !== 'all' && p.type !== typeFilter) continue;
       if (categoryFilter !== 'all' && p.categorySlug !== categoryFilter) continue;
       if (activeSeries && p.seriesId !== activeSeries.id) continue;
-      if (authorFilter !== 'all' && p.authorId !== authorFilter) continue;
+      if (authorFilter !== 'all' && p.authorId !== authorFilter && p.authorProfileId !== authorFilter) continue;
       if (activeTag && !(p.tags || []).includes(activeTag)) continue;
 
       const pubTime = toDate(p.publishedAt || p.createdAt).getTime();
@@ -195,7 +195,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             <option value="gallery">Galerías</option>
             <option value="video">Videos</option>
             <option value="audio">Audio / Pódcast</option>
-            <option value="livestream">Archivo en vivo</option>
+            <option value="infographic">Infografías</option>
+            <option value="document">Documentos / PDF</option>
           </select>
 
           <select
@@ -219,11 +220,15 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             className="px-3.5 py-1.5 rounded-full bg-[#F8F6F1] dark:bg-[#1C1C1C] border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase"
           >
             <option value="all">Todos los autores y medios</option>
-            {collaborators.map((col) => (
-              <option key={col.uid} value={col.uid}>
-                {col.name}
-              </option>
-            ))}
+            <option value="owner">{adminIdentities.owner.name}</option>
+            <option value="magazine">{adminIdentities.magazine.name}</option>
+            {collaborators
+              .filter((col) => col.status === 'active')
+              .map((col) => (
+                <option key={col.uid} value={col.uid}>
+                  {col.name}
+                </option>
+              ))}
           </select>
 
           <select

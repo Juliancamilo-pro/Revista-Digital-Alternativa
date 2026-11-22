@@ -42,13 +42,11 @@ export const GoogleCalendarPanel: React.FC<GoogleCalendarPanelProps> = ({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  // Create form
   const [summary, setSummary] = useState(defaultTitle);
   const [description, setDescription] = useState(defaultDescription);
   const [startLocal, setStartLocal] = useState(defaultDateLocal);
   const [durationMin, setDurationMin] = useState(60);
 
-  // Edit / Delete confirmation modal state
   const [pendingAction, setPendingAction] = useState<
     | {
         kind: 'edit';
@@ -80,7 +78,7 @@ export const GoogleCalendarPanel: React.FC<GoogleCalendarPanelProps> = ({
     setLoading(true);
     setError('');
     try {
-      const items = await listUpcomingCalendarEvents(12);
+      const items = await listUpcomingCalendarEvents(15);
       setEvents(items);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudieron cargar los eventos.');
@@ -147,7 +145,7 @@ export const GoogleCalendarPanel: React.FC<GoogleCalendarPanelProps> = ({
       });
       setSummary('');
       setDescription('');
-      setNotice('Evento agendado en Google Calendar.');
+      setNotice('Cobertura o fecha editorial agendada en Google Calendar.');
       await loadEvents();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo crear el evento.');
@@ -201,7 +199,7 @@ export const GoogleCalendarPanel: React.FC<GoogleCalendarPanelProps> = ({
           <p className="text-xs text-neutral-500 mt-0.5">
             {connected
               ? `Conectado${email ? ` (${email})` : ''} · El token se mantiene solo en memoria de sesión.`
-              : 'Conecta tu cuenta para agendar transmisiones en vivo y coberturas.'}
+              : 'Conecta tu cuenta para organizar coberturas periodísticas, entrevistas, cierres de edición y fechas clave.'}
           </p>
         </div>
 
@@ -253,21 +251,21 @@ export const GoogleCalendarPanel: React.FC<GoogleCalendarPanelProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2 border-t border-neutral-200 dark:border-neutral-800">
           <form onSubmit={handleCreate} className="lg:col-span-5 space-y-3">
             <h3 className="font-display text-sm font-bold uppercase tracking-wider">
-              Agendar nuevo evento
+              Agendar cobertura o fecha editorial
             </h3>
             <input
               type="text"
               required
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
-              placeholder="Título de la emisión o cobertura"
+              placeholder="Ej. Entrevista sindical / Cierre especial regional"
               className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
             />
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descripción o enlace de la sala"
+              placeholder="Notas de cobertura, fuentes o lugar"
               className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
             />
             <div className="grid grid-cols-2 gap-2">
@@ -301,7 +299,7 @@ export const GoogleCalendarPanel: React.FC<GoogleCalendarPanelProps> = ({
 
           <div className="lg:col-span-7 space-y-2.5">
             <h3 className="font-display text-sm font-bold uppercase tracking-wider">
-              Próximos eventos ({events.length})
+              Próximas coberturas y fechas ({events.length})
             </h3>
             {loading ? (
               <p className="text-xs text-neutral-500">Cargando eventos...</p>
@@ -380,7 +378,6 @@ export const GoogleCalendarPanel: React.FC<GoogleCalendarPanelProps> = ({
         </div>
       )}
 
-      {/* Explicit confirmation modal for Calendar update/delete */}
       {pendingAction && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"

@@ -13,6 +13,31 @@
       },
       "required": ["uid", "role", "createdAt"]
     },
+    "AdminPublicIdentity": {
+      "title": "AdminPublicIdentity",
+      "description": "Public editorial identity for the founder/owner or the institutional magazine without exposing admin PII or UID.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "enum": ["owner", "magazine"] },
+        "identityType": { "type": "string", "enum": ["owner", "magazine"] },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "roleTitle": { "type": "string", "maxLength": 120 },
+        "outletType": { "type": "string", "enum": ["medio", "independiente"] },
+        "bio": { "type": "string", "maxLength": 2000 },
+        "avatarUrl": { "type": "string", "maxLength": 400000 },
+        "coverUrl": { "type": "string", "maxLength": 400000 },
+        "websiteUrl": { "type": "string", "maxLength": 500 },
+        "socialTwitter": { "type": "string", "maxLength": 300 },
+        "socialInstagram": { "type": "string", "maxLength": 300 },
+        "socialYoutube": { "type": "string", "maxLength": 300 },
+        "publicEmail": { "type": "string", "maxLength": 200 },
+        "location": { "type": "string", "maxLength": 120 },
+        "topics": { "type": "array" },
+        "showInDirectory": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "identityType", "name", "outletType", "showInDirectory", "updatedAt"]
+    },
     "BootstrapMeta": {
       "title": "BootstrapMeta",
       "description": "One-time bootstrap state locking first-admin claim.",
@@ -124,7 +149,7 @@
     },
     "CollaboratorPublic": {
       "title": "CollaboratorPublic",
-      "description": "Public profile for independent journalists and partner media outlets.",
+      "description": "Opt-in public profile for independent journalists and partner media outlets.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -137,6 +162,24 @@
         "socialTwitter": { "type": "string", "maxLength": 300 },
         "socialInstagram": { "type": "string", "maxLength": 300 },
         "socialYoutube": { "type": "string", "maxLength": 300 },
+        "publicEmail": { "type": "string", "maxLength": 200 },
+        "location": { "type": "string", "maxLength": 120 },
+        "topics": { "type": "array" },
+        "showInDirectory": { "type": "boolean" },
+        "showAvatar": { "type": "boolean" },
+        "showBio": { "type": "boolean" },
+        "showWebsite": { "type": "boolean" },
+        "showSocialTwitter": { "type": "boolean" },
+        "showSocialInstagram": { "type": "boolean" },
+        "showSocialYoutube": { "type": "boolean" },
+        "showPublicEmail": { "type": "boolean" },
+        "showLocation": { "type": "boolean" },
+        "showTopics": { "type": "boolean" },
+        "showJoinDate": { "type": "boolean" },
+        "showPostCount": { "type": "boolean" },
+        "directoryHidden": { "type": "boolean" },
+        "directoryFeatured": { "type": "boolean" },
+        "directoryOrder": { "type": "number" },
         "status": { "type": "string", "enum": ["active", "pending", "suspended"] },
         "inviteHash": { "type": "string", "maxLength": 64 },
         "postCount": { "type": "number" },
@@ -144,6 +187,40 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "name", "outletType", "status", "postCount", "createdAt", "updatedAt"]
+    },
+    "CollaboratorSettings": {
+      "title": "CollaboratorSettings",
+      "description": "Private collaborator draft profile and visibility toggles (owner & admin only).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "outletType": { "type": "string", "enum": ["medio", "independiente"] },
+        "bio": { "type": "string", "maxLength": 2000 },
+        "avatarUrl": { "type": "string", "maxLength": 400000 },
+        "coverUrl": { "type": "string", "maxLength": 400000 },
+        "websiteUrl": { "type": "string", "maxLength": 500 },
+        "socialTwitter": { "type": "string", "maxLength": 300 },
+        "socialInstagram": { "type": "string", "maxLength": 300 },
+        "socialYoutube": { "type": "string", "maxLength": 300 },
+        "publicEmail": { "type": "string", "maxLength": 200 },
+        "location": { "type": "string", "maxLength": 120 },
+        "topics": { "type": "array" },
+        "showInDirectory": { "type": "boolean" },
+        "showAvatar": { "type": "boolean" },
+        "showBio": { "type": "boolean" },
+        "showWebsite": { "type": "boolean" },
+        "showSocialTwitter": { "type": "boolean" },
+        "showSocialInstagram": { "type": "boolean" },
+        "showSocialYoutube": { "type": "boolean" },
+        "showPublicEmail": { "type": "boolean" },
+        "showLocation": { "type": "boolean" },
+        "showTopics": { "type": "boolean" },
+        "showJoinDate": { "type": "boolean" },
+        "showPostCount": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "outletType", "updatedAt"]
     },
     "Category": {
       "title": "Category",
@@ -179,15 +256,15 @@
     },
     "Post": {
       "title": "Post",
-      "description": "Editorial publication: article, gallery, video, audio, or archived livestream.",
+      "description": "Editorial publication: article, gallery, video, audio, infographic, document, or archived legacy item.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "title": { "type": "string", "minLength": 3, "maxLength": 220 },
         "slug": { "type": "string", "minLength": 2, "maxLength": 240 },
         "subtitle": { "type": "string", "maxLength": 500 },
-        "type": { "type": "string", "enum": ["article", "gallery", "video", "audio", "livestream"] },
-        "editorialKind": { "type": "string", "enum": ["articulo", "investigacion", "opinion", "cronica", "analisis", "reportaje", "multimedia"] },
+        "type": { "type": "string", "enum": ["article", "gallery", "video", "audio", "infographic", "document", "livestream"] },
+        "editorialKind": { "type": "string", "enum": ["articulo", "investigacion", "opinion", "cronica", "analisis", "reportaje", "multimedia", "entrevista", "editorial", "explicativo", "datos", "carta"] },
         "status": { "type": "string", "enum": ["draft", "in_review", "scheduled", "published", "unpublished"] },
         "featured": { "type": "boolean" },
         "breaking": { "type": "boolean" },
@@ -199,6 +276,9 @@
         "seriesTitle": { "type": "string", "maxLength": 160 },
         "tags": { "type": "array" },
         "authorId": { "type": "string", "maxLength": 128 },
+        "authorProfileId": { "type": "string", "maxLength": 128 },
+        "authorIdentityType": { "type": "string", "enum": ["owner", "magazine", "collaborator"] },
+        "authorVerified": { "type": "boolean" },
         "authorName": { "type": "string", "maxLength": 120 },
         "authorAvatar": { "type": "string", "maxLength": 400000 },
         "authorOutletType": { "type": "string", "enum": ["medio", "independiente"] },
@@ -208,8 +288,15 @@
         "blocks": { "type": "array" },
         "galleryItems": { "type": "array" },
         "corrections": { "type": "array" },
+        "keyPoints": { "type": "array" },
+        "sensitiveContent": { "type": "boolean" },
+        "sensitiveWarning": { "type": "string", "maxLength": 300 },
+        "sources": { "type": "array" },
+        "seoDescription": { "type": "string", "maxLength": 320 },
+        "commentsEnabled": { "type": "boolean" },
         "mediaUrl": { "type": "string", "maxLength": 400000 },
         "mediaSourceType": { "type": "string", "maxLength": 40 },
+        "documentTitle": { "type": "string", "maxLength": 200 },
         "audioDurationSec": { "type": "number" },
         "readTimeMinutes": { "type": "number" },
         "viewCount": { "type": "number" },
@@ -220,47 +307,6 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "title", "slug", "type", "status", "featured", "breaking", "isSample", "categoryId", "categoryName", "categorySlug", "tags", "authorId", "authorName", "blocks", "readTimeMinutes", "viewCount", "commentCount", "createdAt", "updatedAt"]
-    },
-    "Livestream": {
-      "title": "Livestream",
-      "description": "Scheduled, active, or ended live broadcast.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "maxLength": 128 },
-        "title": { "type": "string", "minLength": 3, "maxLength": 200 },
-        "description": { "type": "string", "maxLength": 2000 },
-        "announcementImage": { "type": "string", "maxLength": 400000 },
-        "status": { "type": "string", "enum": ["scheduled", "live", "ended"] },
-        "sourceType": { "type": "string", "enum": ["youtube", "facebook", "twitch", "hls", "webrtc"] },
-        "sourceUrl": { "type": "string", "maxLength": 2000 },
-        "scheduledFor": { "type": "string", "format": "date-time" },
-        "startedAt": { "type": "string", "format": "date-time" },
-        "endedAt": { "type": "string", "format": "date-time" },
-        "archivedPostId": { "type": "string", "maxLength": 128 },
-        "hostId": { "type": "string", "maxLength": 128 },
-        "hostName": { "type": "string", "maxLength": 120 },
-        "viewerCount": { "type": "number" },
-        "peakViewers": { "type": "number" },
-        "isSample": { "type": "boolean" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["id", "title", "status", "sourceType", "hostId", "hostName", "viewerCount", "peakViewers", "isSample", "createdAt", "updatedAt"]
-    },
-    "LivestreamChatMessage": {
-      "title": "LivestreamChatMessage",
-      "description": "Real-time chat message in a livestream.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "maxLength": 128 },
-        "streamId": { "type": "string", "maxLength": 128 },
-        "authorId": { "type": "string", "maxLength": 128 },
-        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
-        "text": { "type": "string", "minLength": 1, "maxLength": 400 },
-        "status": { "type": "string", "enum": ["visible", "hidden"] },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["id", "streamId", "authorName", "text", "status", "createdAt"]
     },
     "Comment": {
       "title": "Comment",
@@ -275,6 +321,8 @@
         "authorId": { "type": "string", "maxLength": 128 },
         "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
         "authorIsAnonymous": { "type": "boolean" },
+        "authorIsAdmin": { "type": "boolean" },
+        "authorProfileId": { "type": "string", "maxLength": 128 },
         "authorAvatar": { "type": "string", "maxLength": 400000 },
         "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
         "status": { "type": "string", "enum": ["approved", "pending", "hidden", "spam"] },
@@ -338,7 +386,7 @@
         "postId": { "type": "string", "maxLength": 128 },
         "categoryId": { "type": "string", "maxLength": 128 },
         "authorId": { "type": "string", "maxLength": 128 },
-        "contentType": { "type": "string", "enum": ["article", "gallery", "video", "audio", "livestream"] },
+        "contentType": { "type": "string", "enum": ["article", "gallery", "video", "audio", "infographic", "document", "livestream"] },
         "readDurationSec": { "type": "number" },
         "referrerSource": { "type": "string", "maxLength": 80 },
         "dateKey": { "type": "string", "maxLength": 10 },
@@ -364,6 +412,10 @@
     "/admins/{userId}": {
       "schema": { "$ref": "#/entities/AdminRole" },
       "description": "Verified administrators."
+    },
+    "/admin_identities/{identityId}": {
+      "schema": { "$ref": "#/entities/AdminPublicIdentity" },
+      "description": "Publicly readable editorial profiles for owner and magazine without leaking admin UID or PII."
     },
     "/site_meta/bootstrap": {
       "schema": { "$ref": "#/entities/BootstrapMeta" },
@@ -399,7 +451,11 @@
     },
     "/collaborators_public/{userId}": {
       "schema": { "$ref": "#/entities/CollaboratorPublic" },
-      "description": "Public collaborator and outlet profiles."
+      "description": "Public opt-in collaborator and outlet profiles."
+    },
+    "/collaborator_settings/{userId}": {
+      "schema": { "$ref": "#/entities/CollaboratorSettings" },
+      "description": "Private collaborator draft profile and privacy toggles."
     },
     "/categories/{categoryId}": {
       "schema": { "$ref": "#/entities/Category" },
@@ -412,14 +468,6 @@
     "/posts/{postId}": {
       "schema": { "$ref": "#/entities/Post" },
       "description": "All editorial publications."
-    },
-    "/livestreams/{streamId}": {
-      "schema": { "$ref": "#/entities/Livestream" },
-      "description": "Scheduled, live, and ended streams."
-    },
-    "/livestreams/{streamId}/chat/{messageId}": {
-      "schema": { "$ref": "#/entities/LivestreamChatMessage" },
-      "description": "Live chat messages for a stream."
     },
     "/comments/{commentId}": {
       "schema": { "$ref": "#/entities/Comment" },

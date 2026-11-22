@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { DEFAULT_CATEGORIES, DEFAULT_SITE_CONFIG } from '../lib/seedData';
+import { DEFAULT_ADMIN_IDENTITIES, DEFAULT_CATEGORIES, DEFAULT_HOMEPAGE_SECTIONS, DEFAULT_SITE_CONFIG } from '../lib/seedData';
 import { toDate, updateDynamicAppIcons } from '../lib/utils';
-import { Category, CollaboratorPublic, Livestream, Post, SeriesItem, SiteConfig } from '../types/editorial';
+import { AdminPublicIdentity, Category, CollaboratorPublic, HomepageSectionConfig, Post, SeriesItem, SiteConfig } from '../types/editorial';
 import { useAuth } from './AuthContext';
 
 export type FontSizeScale = 'sm' | 'md' | 'lg' | 'xl';
@@ -15,9 +15,15 @@ interface SiteContextValue {
   publishedPosts: Post[];
   myPosts: Post[];
   allPostsForAdmin: Post[];
-  livestreams: Livestream[];
-  activeLivestream: Livestream | null;
   collaborators: CollaboratorPublic[];
+  activeCollaboratorIds: Set<string>;
+  adminIdentities: Record<'owner' | 'magazine', AdminPublicIdentity>;
+  isAuthorVerified: (
+    authorId?: string,
+    identityType?: string,
+    legacyFlag?: boolean,
+    authorName?: string
+  ) => boolean;
   loading: boolean;
   isDark: boolean;
   toggleDark: () => void;
@@ -33,6 +39,24 @@ interface SiteContextValue {
 
 const SiteContext = createContext<SiteContextValue | null>(null);
 
+function normalizeHomepageSections(sections?: HomepageSectionConfig[]): HomepageSectionConfig[] {
+  if (!Array.isArray(sections) || sections.length === 0) return DEFAULT_HOMEPAGE_SECTIONS;
+  const cleaned = sections.filter((s) => s.type !== 'live');
+  if (!cleaned.some((s) => s.type === 'collaborators')) {
+    const feedIdx = cleaned.findIndex((s) => s.type === 'categories_feed');
+    const collabItem: HomepageSectionConfig = {
+      id: 'sec_collaborators',
+      type: 'collaborators',
+      title: 'Conozcan a nuestros colaboradores',
+      enabled: true,
+      order: feedIdx >= 0 ? feedIdx : cleaned.length,
+    };
+    if (feedIdx >= 0) cleaned.splice(feedIdx, 0, collabItem);
+    else cleaned.push(collabItem);
+  }
+  return cleaned.sort((a, b) => a.order - b.order);
+}
+
 export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { firebaseUser, isAdmin, isActiveCollaborator } = useAuth();
 
@@ -42,8 +66,11 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [publishedPosts, setPublishedPosts] = useState<Post[]>([]);
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [allPostsForAdmin, setAllPostsForAdmin] = useState<Post[]>([]);
-  const [livestreams, setLivestreams] = useState<Livestream[]>([]);
   const [collaborators, setCollaborators] = useState<CollaboratorPublic[]>([]);
+  const [adminIdentities, setAdminIdentities] = useState<Record<'owner' | 'magazine', AdminPublicIdentity>>({
+    owner: { ...DEFAULT_ADMIN_IDENTITIES.owner },
+    magazine: { ...DEFAULT_ADMIN_IDENTITIES.magazine },
+  });
   const [loading, setLoading] = useState(true);
 
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -77,7 +104,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Theme & CSS variables sync
   useEffect(() => {
     const root = document.documentElement;
     if (isDark) {
@@ -102,7 +128,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('revista_font_size', size);
   };
 
-  // Public real-time Firestore listeners (zero fictional fallback data)
   useEffect(() => {
     let configSettled = false;
     let postsSettled = false;
@@ -121,7 +146,12 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       doc(db, 'site_config', 'main'),
       (snap) => {
         if (snap.exists()) {
-          setSiteConfig({ ...DEFAULT_SITE_CONFIG, ...(snap.data() as Partial<SiteConfig>) });
+          const raw = snap.data() as Partial<SiteConfig>;
+          setSiteConfig({
+            ...DEFAULT_SITE_CONFIG,
+            ...raw,
+            homepageSections: normalizeHomepageSections(raw.homepageSections),
+          });
         } else {
           setSiteConfig(DEFAULT_SITE_CONFIG as SiteConfig);
         }
@@ -139,7 +169,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       collection(db, 'categories'),
       (snap) => {
         if (!snap.empty) {
-          const list = snap.docs.map((d) => d.data() as Category).sort((a, b) => a.order - b.order);
+          const list = snap.docs
+            .map((d) => d.data() as Category)
+            .filter((c) => c.slug !== 'en-vivo')
+            .sort((a, b) => a.order - b.order);
           setCategories(list);
         }
       },
@@ -171,17 +204,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    const unsubStreams = onSnapshot(
-      collection(db, 'livestreams'),
-      (snap) => {
-        const list = snap.docs
-          .map((d) => d.data() as Livestream)
-          .sort((a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime());
-        setLivestreams(list);
-      },
-      (err) => console.warn('livestreams listener:', err)
-    );
-
     const unsubCollabs = onSnapshot(
       query(collection(db, 'collaborators_public'), where('status', '==', 'active')),
       (snap) => {
@@ -190,18 +212,34 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       (err) => console.warn('collaborators listener:', err)
     );
 
+    const unsubAdminIds = onSnapshot(
+      collection(db, 'admin_identities'),
+      (snap) => {
+        const next: Record<'owner' | 'magazine', AdminPublicIdentity> = {
+          owner: { ...DEFAULT_ADMIN_IDENTITIES.owner },
+          magazine: { ...DEFAULT_ADMIN_IDENTITIES.magazine },
+        };
+        snap.docs.forEach((d) => {
+          const item = d.data() as AdminPublicIdentity;
+          if (d.id === 'owner') next.owner = { ...next.owner, ...item };
+          if (d.id === 'magazine') next.magazine = { ...next.magazine, ...item };
+        });
+        setAdminIdentities(next);
+      },
+      (err) => console.warn('admin_identities listener:', err)
+    );
+
     return () => {
       clearTimeout(safetyTimer);
       unsubConfig();
       unsubCats();
       unsubSeries();
       unsubPosts();
-      unsubStreams();
       unsubCollabs();
+      unsubAdminIds();
     };
   }, []);
 
-  // Author's own posts listener
   useEffect(() => {
     if (!firebaseUser) {
       setMyPosts([]);
@@ -221,7 +259,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, [firebaseUser]);
 
-  // Admin full posts listener
   useEffect(() => {
     if (!isAdmin) {
       setAllPostsForAdmin([]);
@@ -240,7 +277,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, [isAdmin]);
 
-  // Promote overdue scheduled posts when Admin or authorized Collaborator is online
   useEffect(() => {
     if (!firebaseUser) return;
     const checkScheduled = () => {
@@ -266,9 +302,38 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearInterval(timer);
   }, [firebaseUser, isAdmin, isActiveCollaborator, siteConfig.autoPublishCollaborators, allPostsForAdmin, myPosts]);
 
-  const activeLivestream = useMemo(
-    () => livestreams.find((s) => s.status === 'live') || null,
-    [livestreams]
+  const activeCollaboratorIds = useMemo(
+    () => new Set(collaborators.filter((c) => c.status === 'active').map((c) => c.uid)),
+    [collaborators]
+  );
+
+  const allCollaboratorIds = useMemo(
+    () => new Set(collaborators.map((c) => c.uid)),
+    [collaborators]
+  );
+
+  const isAuthorVerified = useCallback(
+    (authorId?: string, identityType?: string, legacyFlag?: boolean, authorName?: string) => {
+      if (authorId === 'owner' || authorId === 'magazine') return true;
+      if (authorId && activeCollaboratorIds.has(authorId)) return true;
+      // Si el UID figura en colaboradores pero no está activo, está suspendido -> sin insignia
+      if (authorId && allCollaboratorIds.has(authorId)) return false;
+      if (identityType === 'owner' || identityType === 'magazine') return true;
+      if (legacyFlag) return true;
+      const trimmedName = (authorName || '').trim().toLowerCase();
+      if (trimmedName) {
+        const adminNames = [
+          siteConfig.siteName,
+          adminIdentities.owner?.name,
+          adminIdentities.magazine?.name,
+        ]
+          .filter(Boolean)
+          .map((n) => n.trim().toLowerCase());
+        if (adminNames.includes(trimmedName)) return true;
+      }
+      return false;
+    },
+    [activeCollaboratorIds, allCollaboratorIds, siteConfig.siteName, adminIdentities]
   );
 
   return (
@@ -280,9 +345,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         publishedPosts,
         myPosts,
         allPostsForAdmin,
-        livestreams,
-        activeLivestream,
         collaborators,
+        activeCollaboratorIds,
+        adminIdentities,
+        isAuthorVerified,
         loading,
         isDark,
         toggleDark: () => setIsDark((d) => !d),

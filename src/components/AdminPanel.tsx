@@ -15,6 +15,7 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart3,
+  Calendar,
   Check,
   EyeOff,
   FolderTree,
@@ -25,12 +26,13 @@ import {
   Mail,
   MessageSquare,
   Plus,
-  Radio,
   RefreshCw,
   Settings,
   ShieldCheck,
+  Star,
   Trash2,
   Upload,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -51,6 +53,8 @@ import {
 } from '../lib/utils';
 import {
   AdminActivityLog,
+  AdminIdentityId,
+  AdminPublicIdentity,
   AnalyticsEvent,
   BlockedCommenter,
   CollaboratorPublic,
@@ -58,23 +62,26 @@ import {
   HomepageSectionConfig,
   InviteSecret,
   NewsletterSubscriber,
+  OutletType,
   Post,
   PostStatus,
   ReportRectification,
   SiteConfig,
-  StreamSourceType,
 } from '../types/editorial';
 import { BlockEditor } from './BlockEditor';
+import { EditorialImage } from './EditorialImage';
 import { GoogleCalendarPanel } from './GoogleCalendarPanel';
+import { VerifiedBadge } from './VerifiedBadge';
 
 type AdminTab =
   | 'posts'
   | 'frontpage'
+  | 'admin_profiles'
   | 'invite'
   | 'collaborators'
   | 'taxonomy'
   | 'comments'
-  | 'streams'
+  | 'agenda'
   | 'stats'
   | 'inbox'
   | 'activity'
@@ -87,7 +94,7 @@ export const AdminPanel: React.FC = () => {
     allPostsForAdmin,
     categories,
     seriesList,
-    livestreams,
+    adminIdentities,
     navigate,
     setAuthModalOpen,
   } = useSite();
@@ -112,6 +119,21 @@ export const AdminPanel: React.FC = () => {
   // Local editable site config
   const [cfgDraft, setCfgDraft] = useState<SiteConfig>(siteConfig);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [logoUploadProgress, setLogoUploadProgress] = useState<number | null>(null);
+
+  // Admin dual public identities drafts
+  const [identityDrafts, setIdentityDrafts] = useState<Record<AdminIdentityId, AdminPublicIdentity>>({
+    owner: adminIdentities.owner,
+    magazine: adminIdentities.magazine,
+  });
+  const [identityTopicsInput, setIdentityTopicsInput] = useState<Record<AdminIdentityId, string>>({
+    owner: (adminIdentities.owner.topics || []).join(', '),
+    magazine: (adminIdentities.magazine.topics || []).join(', '),
+  });
+  const [identityAvatarProgress, setIdentityAvatarProgress] = useState<Record<AdminIdentityId, number | null>>({
+    owner: null,
+    magazine: null,
+  });
 
   // Taxonomy creation forms
   const [catName, setCatName] = useState('');
@@ -119,13 +141,6 @@ export const AdminPanel: React.FC = () => {
   const [catParent, setCatParent] = useState('');
   const [serTitle, setSerTitle] = useState('');
   const [serDesc, setSerDesc] = useState('');
-
-  // Stream form
-  const [streamTitle, setStreamTitle] = useState('');
-  const [streamDesc, setStreamDesc] = useState('');
-  const [streamType, setStreamType] = useState<StreamSourceType>('youtube');
-  const [streamUrl, setStreamUrl] = useState('');
-  const [streamDate, setStreamDate] = useState('');
 
   // Stats period filter
   const [statsPeriod, setStatsPeriod] = useState<'today' | '7d' | '30d' | 'all'>('30d');
@@ -137,6 +152,17 @@ export const AdminPanel: React.FC = () => {
     setCfgDraft(siteConfig);
     setBlockedWordsInput((siteConfig.blockedWords || []).join(', '));
   }, [siteConfig]);
+
+  useEffect(() => {
+    setIdentityDrafts({
+      owner: adminIdentities.owner,
+      magazine: adminIdentities.magazine,
+    });
+    setIdentityTopicsInput({
+      owner: (adminIdentities.owner.topics || []).join(', '),
+      magazine: (adminIdentities.magazine.topics || []).join(', '),
+    });
+  }, [adminIdentities]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -493,8 +519,9 @@ export const AdminPanel: React.FC = () => {
           <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
             Panel de administración total
           </p>
-          <h1 className="font-display text-3xl sm:text-4xl font-extrabold uppercase tracking-tight">
-            {siteConfig.siteName}
+          <h1 className="font-display text-3xl sm:text-4xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+            <span>{siteConfig.siteName}</span>
+            <VerifiedBadge size="md" />
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -521,11 +548,12 @@ export const AdminPanel: React.FC = () => {
           [
             ['posts', `Publicaciones (${allPostsForAdmin.length})`, LayoutGrid],
             ['frontpage', 'Portada (Arrastrar)', LayoutGrid],
+            ['admin_profiles', 'Perfiles del administrador', UserCheck],
             ['invite', 'Código de invitación', KeyRound],
             ['collaborators', `Colaboradores (${allCollaborators.length})`, Users],
             ['taxonomy', 'Categorías y Series', FolderTree],
             ['comments', `Comentarios${pendingCommentsCount > 0 ? ` (${pendingCommentsCount} pend.)` : ''}`, MessageSquare],
-            ['streams', 'En vivo', Radio],
+            ['agenda', 'Agenda', Calendar],
             ['stats', 'Estadísticas', BarChart3],
             ['inbox', `Boletín y Denuncias${pendingTicketsCount > 0 ? ` (${pendingTicketsCount})` : ''}`, Mail],
             ['activity', `Actividad (${activityLogs.length})`, History],
@@ -674,6 +702,7 @@ export const AdminPanel: React.FC = () => {
             </p>
             <div className="space-y-2">
               {[...cfgDraft.homepageSections]
+                .filter((s) => s.type !== 'live')
                 .sort((a, b) => a.order - b.order)
                 .map((sec: HomepageSectionConfig, idx: number) => (
                   <div
@@ -931,14 +960,15 @@ export const AdminPanel: React.FC = () => {
                 <th className="px-4 py-3">Medio / Periodista</th>
                 <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3 text-right">Publicaciones</th>
+                <th className="px-4 py-3">Directorio público</th>
+                <th className="px-4 py-3 text-right">Notas</th>
                 <th className="px-4 py-3 text-right">Gestión</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
               {allCollaborators.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-neutral-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-neutral-500">
                     Aún no hay colaboradores registrados.
                   </td>
                 </tr>
@@ -947,11 +977,94 @@ export const AdminPanel: React.FC = () => {
                   const count = allPostsForAdmin.filter((p) => p.authorId === col.uid).length;
                   return (
                     <tr key={col.uid}>
-                      <td className="px-4 py-3 font-semibold">{col.name}</td>
+                      <td className="px-4 py-3 font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/colaborador/${col.uid}`)}
+                          className="inline-flex items-center gap-1.5 hover:text-[var(--editorial-primary)] cursor-pointer text-left"
+                        >
+                          <span>{col.name}</span>
+                          {col.status === 'active' && <VerifiedBadge size="xs" />}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-xs uppercase">{col.outletType}</td>
                       <td className="px-4 py-3 text-xs font-display font-bold uppercase">{col.status}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-display font-bold uppercase">
+                          <span className={col.showInDirectory ? 'text-emerald-600' : 'text-neutral-400'}>
+                            {col.showInDirectory ? 'Opt-in activo' : 'Sin opt-in'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const nextHidden = !col.directoryHidden;
+                                await updateDoc(doc(db, 'collaborators_public', col.uid), {
+                                  directoryHidden: nextHidden,
+                                  updatedAt: serverTimestamp(),
+                                });
+                                notify(nextHidden ? 'Ocultado del directorio.' : 'Visible en directorio.');
+                              } catch {
+                                notify('No se pudo actualizar visibilidad.');
+                              }
+                            }}
+                            className={`px-2 py-0.5 rounded-full border cursor-pointer ${
+                              col.directoryHidden
+                                ? 'border-red-500 text-red-600'
+                                : 'border-neutral-300 dark:border-neutral-700'
+                            }`}
+                          >
+                            {col.directoryHidden ? 'Ocultado' : 'Mostrar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const nextFeat = !col.directoryFeatured;
+                                await updateDoc(doc(db, 'collaborators_public', col.uid), {
+                                  directoryFeatured: nextFeat,
+                                  updatedAt: serverTimestamp(),
+                                });
+                                notify(nextFeat ? 'Marcado como destacado.' : 'Destacado retirado.');
+                              } catch {
+                                notify('No se pudo actualizar destacado.');
+                              }
+                            }}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border cursor-pointer ${
+                              col.directoryFeatured
+                                ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                : 'border-neutral-300 dark:border-neutral-700'
+                            }`}
+                          >
+                            <Star className="w-3 h-3" />
+                            <span>{col.directoryFeatured ? 'Destacado' : 'Destacar'}</span>
+                          </button>
+                          <input
+                            type="number"
+                            aria-label={`Orden de ${col.name}`}
+                            defaultValue={col.directoryOrder ?? 999}
+                            min={-1000}
+                            max={10000}
+                            onBlur={async (e) => {
+                              const val = Number(e.target.value);
+                              if (!Number.isFinite(val) || val === (col.directoryOrder ?? 999)) return;
+                              try {
+                                await updateDoc(doc(db, 'collaborators_public', col.uid), {
+                                  directoryOrder: Math.max(-1000, Math.min(10000, Math.round(val))),
+                                  updatedAt: serverTimestamp(),
+                                });
+                                notify('Orden actualizado.');
+                              } catch {
+                                notify('No se pudo actualizar el orden.');
+                              }
+                            }}
+                            className="w-16 px-2 py-0.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 font-tabular text-xs"
+                            title="Orden en el directorio (menor primero)"
+                          />
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-right font-tabular">{count}</td>
-                      <td className="px-4 py-3 text-right space-x-2 text-xs font-display font-bold uppercase">
+                      <td className="px-4 py-3 text-right space-x-2 text-xs font-display font-bold uppercase whitespace-nowrap">
                         {col.status !== 'active' && (
                           <button
                             type="button"
@@ -1319,112 +1432,301 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 7: LIVESTREAMS */}
-      {tab === 'streams' && (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const cleanTitle = streamTitle.trim().slice(0, 200);
-                if (cleanTitle.length < 3) {
-                  notify('El título de la transmisión debe tener al menos 3 caracteres.');
-                  return;
-                }
-                try {
-                  const id = generateId('live');
-                  await setDoc(doc(db, 'livestreams', id), {
-                    id,
-                    title: cleanTitle,
-                    description: streamDesc.trim().slice(0, 2000),
-                    status: 'scheduled',
-                    sourceType: streamType,
-                    sourceUrl: streamUrl.trim().slice(0, 2000),
-                    scheduledFor: streamDate ? new Date(streamDate) : new Date(),
-                    hostId: firebaseUser.uid,
-                    hostName: 'Dirección Editorial',
-                    viewerCount: 0,
-                    peakViewers: 0,
-                    isSample: false,
-                    createdAt: serverTimestamp(),
-                    updatedAt: serverTimestamp(),
-                  });
-                  await logAdminActivity(firebaseUser.uid, adminActorName, 'Transmisión programada', `Sala: ${cleanTitle}`);
-                  setStreamTitle('');
-                  setStreamDesc('');
-                  setStreamUrl('');
-                  notify('Transmisión programada.');
-                } catch {
-                  notify('No se pudo programar la transmisión.');
-                }
-              }}
-              className="lg:col-span-5 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4"
-            >
-              <h2 className="font-display text-2xl font-extrabold uppercase">Nueva transmisión en vivo</h2>
-              <input type="text" required minLength={3} maxLength={200} value={streamTitle} onChange={(e) => setStreamTitle(e.target.value)} placeholder="Título de la transmisión" className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm" />
-              <textarea rows={2} maxLength={2000} value={streamDesc} onChange={(e) => setStreamDesc(e.target.value)} placeholder="Descripción" className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm" />
-              <select value={streamType} onChange={(e) => setStreamType(e.target.value as StreamSourceType)} className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm">
-                <option value="youtube">YouTube Live</option>
-                <option value="facebook">Facebook Live</option>
-                <option value="twitch">Twitch</option>
-                <option value="hls">URL HLS / MP4</option>
-                <option value="webrtc">Cámara directa del navegador (WebRTC)</option>
-              </select>
-              {streamType !== 'webrtc' && (
-                <input type="url" maxLength={2000} value={streamUrl} onChange={(e) => setStreamUrl(e.target.value)} placeholder="URL del stream" className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm" />
-              )}
-              <input type="datetime-local" value={streamDate} onChange={(e) => setStreamDate(e.target.value)} className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm" />
-              <button type="submit" className="w-full py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase cursor-pointer">
-                Programar transmisión
-              </button>
-            </form>
-
-            <div className="lg:col-span-7 space-y-3">
-              {livestreams.length === 0 ? (
-                <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-8 text-center text-sm text-neutral-500">
-                  No hay transmisiones programadas ni activas.
-                </div>
-              ) : (
-                livestreams.map((s) => (
-                  <div key={s.id} className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-display font-bold uppercase text-[var(--editorial-primary)]">
-                        {s.status} · {s.sourceType}
-                      </p>
-                      <p className="font-display text-lg font-bold">{s.title}</p>
-                      <p className="text-xs text-neutral-500">{formatDateEs(s.scheduledFor || s.createdAt, true)}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-xs font-display font-bold uppercase">
-                      <button type="button" onClick={() => navigate(`/en-vivo/${s.id}`)} className="px-4 py-1.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black cursor-pointer">
-                        Abrir sala
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await deleteDoc(doc(db, 'livestreams', s.id));
-                            await logAdminActivity(firebaseUser.uid, adminActorName, 'Transmisión eliminada', `Sala: ${s.title}`);
-                            notify('Transmisión eliminada.');
-                          } catch {
-                            notify('No se pudo eliminar la transmisión.');
-                          }
-                        }}
-                        className="px-4 py-1.5 rounded-full text-red-600 border border-red-200 dark:border-red-900 cursor-pointer"
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+      {/* TAB: ADMIN PUBLIC IDENTITIES (OWNER & MAGAZINE) */}
+      {tab === 'admin_profiles' && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5">
+            <h2 className="font-display text-2xl font-extrabold uppercase">Perfiles públicos del administrador</h2>
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">
+              Configura dos perfiles editoriales públicos para tu cuenta sin exponer nunca tu correo personal ni tu UID privado: tu identidad personal de autor y la identidad institucional de la revista.
+            </p>
           </div>
 
-          <GoogleCalendarPanel
-            defaultTitle={streamTitle}
-            defaultDescription={streamDesc}
-            defaultDateLocal={streamDate}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {(['owner', 'magazine'] as const).map((idKey) => {
+              const draft = identityDrafts[idKey];
+              const progress = identityAvatarProgress[idKey];
+              return (
+                <form
+                  key={idKey}
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const cleanName = (draft.name || '').trim().slice(0, 120);
+                    if (cleanName.length < 2) {
+                      notify('El nombre público debe tener al menos 2 caracteres.');
+                      return;
+                    }
+                    const parsedTopics = (identityTopicsInput[idKey] || '')
+                      .split(',')
+                      .map((t) => t.trim().slice(0, 40))
+                      .filter(Boolean)
+                      .slice(0, 15);
+                    try {
+                      await setDoc(doc(db, 'admin_identities', idKey), {
+                        id: idKey,
+                        identityType: idKey,
+                        name: cleanName,
+                        roleTitle: (draft.roleTitle || '').trim().slice(0, 120),
+                        outletType: draft.outletType === 'medio' ? 'medio' : 'independiente',
+                        bio: (draft.bio || '').trim().slice(0, 2000),
+                        avatarUrl: (draft.avatarUrl || '').trim().slice(0, 400000),
+                        websiteUrl: sanitizeExternalUrl(draft.websiteUrl || '').slice(0, 500),
+                        socialTwitter: (draft.socialTwitter || '').trim().slice(0, 300),
+                        socialInstagram: (draft.socialInstagram || '').trim().slice(0, 300),
+                        socialYoutube: (draft.socialYoutube || '').trim().slice(0, 300),
+                        publicEmail: (draft.publicEmail || '').trim().slice(0, 200),
+                        location: (draft.location || '').trim().slice(0, 120),
+                        topics: parsedTopics,
+                        showInDirectory: draft.showInDirectory !== false,
+                        updatedAt: serverTimestamp(),
+                      });
+                      await logAdminActivity(
+                        firebaseUser.uid,
+                        adminActorName,
+                        'Identidad pública actualizada',
+                        `Perfil ${idKey === 'owner' ? 'personal' : 'de revista'}: ${cleanName}`
+                      );
+                      notify(`Perfil "${cleanName}" actualizado correctamente.`);
+                    } catch {
+                      notify('No se pudo guardar la identidad pública.');
+                    }
+                  }}
+                  className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4"
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+                    <div>
+                      <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                        {idKey === 'owner' ? 'Identidad personal (Propietario)' : 'Identidad institucional (Revista)'}
+                      </p>
+                      <h3 className="font-display text-xl font-extrabold uppercase flex items-center gap-1.5 mt-0.5">
+                        <span>{draft.name}</span>
+                        <VerifiedBadge size="sm" />
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/colaborador/${idKey}`)}
+                      className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 font-display text-[11px] font-bold uppercase cursor-pointer"
+                    >
+                      Ver perfil
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Nombre público</label>
+                      <input
+                        type="text"
+                        required
+                        minLength={2}
+                        maxLength={120}
+                        value={draft.name}
+                        onChange={(e) =>
+                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, name: e.target.value } }))
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Cargo o rol visible</label>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={draft.roleTitle || ''}
+                        onChange={(e) =>
+                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, roleTitle: e.target.value } }))
+                        }
+                        placeholder={idKey === 'owner' ? 'Director y editor fundador' : 'Redacción editorial'}
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Modalidad</label>
+                      <select
+                        value={draft.outletType}
+                        onChange={(e) =>
+                          setIdentityDrafts((prev) => ({
+                            ...prev,
+                            [idKey]: { ...draft, outletType: e.target.value as OutletType },
+                          }))
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                      >
+                        <option value="independiente">Periodista independiente</option>
+                        <option value="medio">Medio o revista</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Ciudad / Territorio</label>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={draft.location || ''}
+                        onChange={(e) =>
+                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, location: e.target.value } }))
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block font-display text-[11px] font-bold uppercase">Foto o emblema público (1:1)</label>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {draft.avatarUrl && (
+                        <div className="w-11 h-11 rounded-full overflow-hidden border border-neutral-300 dark:border-neutral-700 shrink-0">
+                          <EditorialImage src={draft.avatarUrl} alt={draft.name} fallbackTitle={draft.name} allowInDataSaver />
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        value={draft.avatarUrl || ''}
+                        onChange={(e) =>
+                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, avatarUrl: e.target.value } }))
+                        }
+                        placeholder="URL o subir archivo"
+                        className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                      <label className="px-3.5 py-2 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black font-display text-xs font-bold uppercase cursor-pointer">
+                        Subir
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            setIdentityAvatarProgress((p) => ({ ...p, [idKey]: 5 }));
+                            try {
+                              const res = await uploadMediaAsset(
+                                f,
+                                `admin_identities/${idKey}`,
+                                (pct) => setIdentityAvatarProgress((p) => ({ ...p, [idKey]: pct })),
+                                'avatar'
+                              );
+                              setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, avatarUrl: res.url } }));
+                            } catch (err) {
+                              notify(err instanceof Error ? err.message : 'No se pudo subir la imagen.');
+                            } finally {
+                              setTimeout(() => setIdentityAvatarProgress((p) => ({ ...p, [idKey]: null })), 600);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                    {progress !== null && (
+                      <div className="h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+                        <div className="h-1.5 bg-[var(--editorial-primary)]" style={{ width: `${progress}%` }} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block font-display text-[11px] font-bold uppercase mb-1">Biografía o presentación</label>
+                    <textarea
+                      rows={3}
+                      maxLength={2000}
+                      value={draft.bio || ''}
+                      onChange={(e) =>
+                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, bio: e.target.value } }))
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <input
+                      type="url"
+                      value={draft.websiteUrl || ''}
+                      onChange={(e) =>
+                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, websiteUrl: e.target.value } }))
+                      }
+                      placeholder="Sitio web (https://...)"
+                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                    <input
+                      type="email"
+                      value={draft.publicEmail || ''}
+                      onChange={(e) =>
+                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, publicEmail: e.target.value } }))
+                      }
+                      placeholder="Correo público opcional"
+                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={draft.socialTwitter || ''}
+                      onChange={(e) =>
+                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, socialTwitter: e.target.value } }))
+                      }
+                      placeholder="X / Twitter"
+                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={draft.socialInstagram || ''}
+                      onChange={(e) =>
+                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, socialInstagram: e.target.value } }))
+                      }
+                      placeholder="Instagram"
+                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={draft.socialYoutube || ''}
+                      onChange={(e) =>
+                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, socialYoutube: e.target.value } }))
+                      }
+                      placeholder="YouTube"
+                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={identityTopicsInput[idKey]}
+                      onChange={(e) =>
+                        setIdentityTopicsInput((prev) => ({ ...prev, [idKey]: e.target.value }))
+                      }
+                      placeholder="Temas (separados por coma)"
+                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                  </div>
+
+                  <label className="inline-flex items-center gap-2 text-xs font-display font-bold uppercase cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={draft.showInDirectory !== false}
+                      onChange={(e) =>
+                        setIdentityDrafts((prev) => ({
+                          ...prev,
+                          [idKey]: { ...draft, showInDirectory: e.target.checked },
+                        }))
+                      }
+                    />
+                    <span>Mostrar en el directorio «Conozcan a nuestros colaboradores»</span>
+                  </label>
+
+                  <div>
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase cursor-pointer"
+                    >
+                      Guardar identidad
+                    </button>
+                  </div>
+                </form>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 7: AGENDA EDITORIAL (GOOGLE CALENDAR) */}
+      {tab === 'agenda' && (
+        <div className="space-y-4">
+          <GoogleCalendarPanel />
         </div>
       )}
 
@@ -1454,7 +1756,7 @@ export const AdminPanel: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4">
               <p className="text-xs font-display uppercase text-neutral-500">Visitas acumuladas</p>
               <p className="font-tabular text-2xl font-bold mt-1">{totalSiteViews.toLocaleString('es-ES')}</p>
@@ -1469,12 +1771,6 @@ export const AdminPanel: React.FC = () => {
                 {filteredEvents.length
                   ? `${Math.round(filteredEvents.reduce((a, e) => a + e.readDurationSec, 0) / filteredEvents.length)}s`
                   : '0s'}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4">
-              <p className="text-xs font-display uppercase text-neutral-500">Pico en vivo</p>
-              <p className="font-tabular text-2xl font-bold mt-1">
-                {Math.max(0, ...livestreams.map((s) => s.peakViewers || 0))}
               </p>
             </div>
             <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4">
@@ -1708,17 +2004,30 @@ export const AdminPanel: React.FC = () => {
                     onChange={async (e) => {
                       const f = e.target.files?.[0];
                       if (f) {
+                        setLogoUploadProgress(5);
                         try {
-                          const res = await uploadMediaAsset(f, 'site');
+                          const res = await uploadMediaAsset(
+                            f,
+                            'site',
+                            (pct) => setLogoUploadProgress(pct),
+                            'logo'
+                          );
                           setCfgDraft({ ...cfgDraft, logoUrl: res.url });
                         } catch (err) {
                           notify(err instanceof Error ? err.message : 'No se pudo subir el logo.');
+                        } finally {
+                          setTimeout(() => setLogoUploadProgress(null), 600);
                         }
                       }
                     }}
                   />
                 </label>
               </div>
+              {logoUploadProgress !== null && (
+                <div className="h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+                  <div className="h-1.5 bg-[var(--editorial-primary)]" style={{ width: `${logoUploadProgress}%` }} />
+                </div>
+              )}
               {sanitizeExternalUrl(cfgDraft.logoUrl) && (
                 <div className="flex items-center gap-2 pt-1">
                   <img

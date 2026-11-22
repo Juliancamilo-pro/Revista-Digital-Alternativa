@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   collection,
   deleteDoc,
@@ -11,13 +11,14 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { EyeOff, Flag, MessageSquare, Reply, ShieldAlert, ThumbsUp, Trash2, Check } from 'lucide-react';
+import { Check, EyeOff, Flag, MessageSquare, Reply, ShieldAlert, ThumbsUp, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
 import { checkActionCooldown, generateSpamChallenge, markActionCooldown } from '../lib/appCheck';
 import { db } from '../lib/firebase';
 import { formatDateEs, generateId } from '../lib/utils';
 import { CommentItem, Post } from '../types/editorial';
+import { VerifiedBadge } from './VerifiedBadge';
 
 interface CommentsSectionProps {
   post: Post;
@@ -25,7 +26,7 @@ interface CommentsSectionProps {
 
 export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
   const { firebaseUser, userAccount, isAdmin } = useAuth();
-  const { siteConfig, setAuthModalOpen } = useSite();
+  const { siteConfig, setAuthModalOpen, isAuthorVerified } = useSite();
 
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [text, setText] = useState('');
@@ -39,9 +40,11 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [lastSubmitMs, setLastSubmitMs] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isPostAuthor = Boolean(firebaseUser && post.authorId === firebaseUser.uid);
   const canModerate = isAdmin || isPostAuthor;
+  const commentsAllowed = post.commentsEnabled !== false;
 
   useEffect(() => {
     const q = canModerate
@@ -54,12 +57,14 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
         const list = snap.docs
           .map((d) => d.data() as CommentItem)
           .sort((a, b) => {
-            const ta = a.createdAt && typeof (a.createdAt as { toMillis?: () => number }).toMillis === 'function'
-              ? (a.createdAt as { toMillis: () => number }).toMillis()
-              : 0;
-            const tb = b.createdAt && typeof (b.createdAt as { toMillis?: () => number }).toMillis === 'function'
-              ? (b.createdAt as { toMillis: () => number }).toMillis()
-              : 0;
+            const ta =
+              a.createdAt && typeof (a.createdAt as { toMillis?: () => number }).toMillis === 'function'
+                ? (a.createdAt as { toMillis: () => number }).toMillis()
+                : 0;
+            const tb =
+              b.createdAt && typeof (b.createdAt as { toMillis?: () => number }).toMillis === 'function'
+                ? (b.createdAt as { toMillis: () => number }).toMillis()
+                : 0;
             return tb - ta;
           });
         setComments(list);
@@ -69,10 +74,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
     return () => unsub();
   }, [post.id, canModerate]);
 
-  const topLevelComments = useMemo(
-    () => comments.filter((c) => !c.parentId),
-    [comments]
-  );
+  const topLevelComments = useMemo(() => comments.filter((c) => !c.parentId), [comments]);
 
   const repliesByParent = useMemo(() => {
     const map = new Map<string, CommentItem[]>();
@@ -89,6 +91,11 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setNotice(null);
+
+    if (!commentsAllowed && !canModerate) {
+      setNotice({ ok: false, text: 'Los comentarios están deshabilitados en esta publicación.' });
+      return;
+    }
 
     if (honeypot.trim()) {
       setText('');
@@ -149,6 +156,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
         ...(firebaseUser ? { authorId: firebaseUser.uid } : {}),
         authorName: displayName.slice(0, 80),
         authorIsAnonymous: !firebaseUser,
+        ...(isAdmin ? { authorIsAdmin: true, authorProfileId: 'owner' } : {}),
         text: trimmed.slice(0, 2000),
         status: initialStatus,
         likesCount: 0,
@@ -231,6 +239,8 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
   const renderComment = (c: CommentItem, depth = 0) => {
     const replies = repliesByParent.get(c.id) || [];
     const canDelete = canModerate || (firebaseUser && c.authorId === firebaseUser.uid);
+    const verifiedCommenter =
+      !c.authorIsAnonymous && (Boolean(c.authorIsAdmin) || isAuthorVerified(c.authorId));
 
     return (
       <div
@@ -239,11 +249,12 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs">
-            <span className="font-display font-bold uppercase tracking-wide text-sm text-[#111111] dark:text-white">
-              {c.authorName}
+            <span className="font-display font-bold uppercase tracking-wide text-sm text-[#111111] dark:text-white inline-flex items-center gap-1.5">
+              <span>{c.authorName}</span>
+              {verifiedCommenter && <VerifiedBadge size="xs" />}
             </span>
             <span className="text-neutral-500">
-              {c.authorIsAnonymous ? 'Lector invitado' : 'Cuenta verificada'} · {formatDateEs(c.createdAt, true)}
+              {c.authorIsAnonymous ? 'Lector invitado' : c.authorIsAdmin ? 'Redacción' : 'Cuenta verificada'} · {formatDateEs(c.createdAt, true)}
             </span>
             {c.status !== 'approved' && (
               <span className="text-[11px] font-display font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
@@ -297,10 +308,13 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
             <span className="font-tabular">{c.likesCount || 0}</span>
           </button>
 
-          {depth === 0 && (
+          {depth === 0 && (commentsAllowed || canModerate) && (
             <button
               type="button"
-              onClick={() => setReplyTo(c)}
+              onClick={() => {
+                setReplyTo(c);
+                textareaRef.current?.focus();
+              }}
               className="inline-flex items-center gap-1 hover:text-black dark:hover:text-white cursor-pointer"
             >
               <Reply className="w-3.5 h-3.5" aria-hidden="true" />
@@ -346,121 +360,132 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
           <span>Debate y comentarios ({comments.filter((c) => c.status === 'approved').length})</span>
         </h2>
         <span className="text-xs font-display uppercase tracking-wider text-neutral-500">
-          {siteConfig.commentModerationMode === 'pre' ? 'Moderación previa activa' : 'Publicación directa con moderación'}
+          {!commentsAllowed
+            ? 'Comentarios cerrados'
+            : siteConfig.commentModerationMode === 'pre'
+            ? 'Moderación previa activa'
+            : 'Publicación directa con moderación'}
         </span>
       </div>
 
-      {/* Comment Composer */}
-      <form onSubmit={handleSubmit} className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 sm:p-6 space-y-4 shadow-sm">
-        {/* Honeypot antispam oculto */}
-        <input
-          type="text"
-          name="website_hp"
-          tabIndex={-1}
-          autoComplete="off"
-          value={honeypot}
-          onChange={(e) => setHoneypot(e.target.value)}
-          className="hidden"
-          aria-hidden="true"
-        />
-
-        {replyTo && (
-          <div className="flex items-center justify-between rounded-xl bg-neutral-100 dark:bg-neutral-900 px-3.5 py-2 text-xs">
-            <span>
-              Respondiendo a <strong>{replyTo.authorName}</strong>
-            </span>
-            <button type="button" onClick={() => setReplyTo(null)} className="text-red-600 hover:underline cursor-pointer font-semibold">
-              Cancelar
-            </button>
-          </div>
-        )}
-
-        {!firebaseUser && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-200 dark:border-neutral-800">
-            {siteConfig.allowAnonymousComments ? (
-              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1">
-                    Tu nombre visible (sin registro)
-                  </label>
-                  <input
-                    type="text"
-                    value={guestName}
-                    onChange={(e) => setGuestName(e.target.value)}
-                    placeholder="Ej. Lector de Medellín"
-                    className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
-                  />
-                </div>
-                <div>
-                  <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1">
-                    Verificación antispam: {challenge.question}
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    inputMode="numeric"
-                    value={challengeAnswer}
-                    onChange={(e) => setChallengeAnswer(e.target.value)}
-                    placeholder="Respuesta numérica"
-                    className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
-                  />
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                Inicia sesión con tu correo o Google para participar en el debate.
-              </p>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setAuthModalOpen(true)}
-              className="px-4 py-2 rounded-full border border-[#111111] dark:border-neutral-600 font-display text-xs font-bold uppercase tracking-wider hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black cursor-pointer self-start sm:self-end transition-colors"
-            >
-              Ingresar con correo o Google
-            </button>
-          </div>
-        )}
-
-        <div>
-          <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1.5">
-            {firebaseUser ? `Comentar como ${userAccount?.displayName || firebaseUser.displayName || firebaseUser.email}` : 'Escribe tu comentario'}
-          </label>
-          <textarea
-            rows={3}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            maxLength={2000}
-            placeholder="Aporta un análisis respetuoso y argumentado..."
-            className="w-full p-3.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
+      {!commentsAllowed && !canModerate ? (
+        <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 text-sm text-neutral-600 dark:text-neutral-400">
+          Los comentarios se encuentran deshabilitados en esta publicación por decisión editorial.
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 sm:p-6 space-y-4 shadow-sm">
+          <input
+            type="text"
+            name="website_hp"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            className="hidden"
+            aria-hidden="true"
           />
-        </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs text-neutral-500 font-tabular">
-            {text.length}/2000 caracteres
-          </span>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-6 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-xs cursor-pointer disabled:opacity-60 transition-colors"
-          >
-            {submitting ? 'Enviando...' : replyTo ? 'Publicar respuesta' : 'Publicar comentario'}
-          </button>
-        </div>
+          {replyTo && (
+            <div className="flex items-center justify-between rounded-xl bg-neutral-100 dark:bg-neutral-900 px-3.5 py-2 text-xs">
+              <span>
+                Respondiendo a <strong>{replyTo.authorName}</strong>
+              </span>
+              <button type="button" onClick={() => setReplyTo(null)} className="text-red-600 hover:underline cursor-pointer font-semibold">
+                Cancelar
+              </button>
+            </div>
+          )}
 
-        {notice && (
-          <p role="status" className={`text-xs font-medium ${notice.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'}`}>
-            {notice.text}
-          </p>
-        )}
-      </form>
+          {!firebaseUser && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+              {siteConfig.allowAnonymousComments ? (
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1">
+                      Tu nombre visible (sin registro)
+                    </label>
+                    <input
+                      type="text"
+                      value={guestName}
+                      onChange={(e) => setGuestName(e.target.value)}
+                      placeholder="Ej. Lector de Medellín"
+                      className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1">
+                      Verificación antispam: {challenge.question}
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      inputMode="numeric"
+                      value={challengeAnswer}
+                      onChange={(e) => setChallengeAnswer(e.target.value)}
+                      placeholder="Respuesta numérica"
+                      className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  Inicia sesión con tu correo o Google para participar en el debate.
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setAuthModalOpen(true)}
+                className="px-4 py-2 rounded-full border border-[#111111] dark:border-neutral-600 font-display text-xs font-bold uppercase tracking-wider hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black cursor-pointer self-start sm:self-end transition-colors"
+              >
+                Ingresar con correo o Google
+              </button>
+            </div>
+          )}
+
+          <div>
+            <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1.5">
+              {firebaseUser ? `Comentar como ${userAccount?.displayName || firebaseUser.displayName || firebaseUser.email}` : 'Escribe tu comentario'}
+            </label>
+            <textarea
+              ref={textareaRef}
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={2000}
+              placeholder="Aporta un análisis respetuoso y argumentado..."
+              className="w-full p-3.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-xs text-neutral-500 font-tabular">
+              {text.length}/2000 caracteres
+            </span>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-6 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-xs cursor-pointer disabled:opacity-60 transition-colors"
+            >
+              {submitting ? 'Enviando...' : replyTo ? 'Publicar respuesta' : 'Publicar comentario'}
+            </button>
+          </div>
+
+          {notice && (
+            <p role="status" className={`text-xs font-medium ${notice.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'}`}>
+              {notice.text}
+            </p>
+          )}
+        </form>
+      )}
 
       {/* Comments List */}
       <div className="mt-6">
         {topLevelComments.length === 0 ? (
           <p className="py-8 text-center text-sm text-neutral-500">
-            Aún no hay comentarios en esta publicación. Sé la primera persona en abrir el debate.
+            {commentsAllowed
+              ? 'Aún no hay comentarios en esta publicación. Sé la primera persona en abrir el debate.'
+              : 'No se registraron comentarios en esta publicación.'}
           </p>
         ) : (
           topLevelComments.map((c) => renderComment(c))
