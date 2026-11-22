@@ -145,10 +145,16 @@ export const HomePage: React.FC = () => {
   }, [adminIdentities, collaborators]);
 
   const filteredFeed = useMemo(() => {
-    return publishedPosts.filter((p) => {
+    const filtered = publishedPosts.filter((p) => {
       if (feedTypeFilter !== 'all' && p.type !== feedTypeFilter) return false;
       if (feedCatFilter !== 'all' && p.categorySlug !== feedCatFilter) return false;
       return true;
+    });
+    return filtered.sort((a, b) => {
+      if (Boolean(a.pinnedInFeed) !== Boolean(b.pinnedInFeed)) {
+        return a.pinnedInFeed ? -1 : 1;
+      }
+      return 0;
     });
   }, [publishedPosts, feedTypeFilter, feedCatFilter]);
 
@@ -391,8 +397,8 @@ export const HomePage: React.FC = () => {
         if (breakingPosts.length === 0) return null;
         return (
           <section key={section.id} className="rounded-2xl border border-[var(--editorial-primary)]/40 bg-white dark:bg-[#141414] p-5 sm:p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="px-3 py-1 rounded-full bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest">
+            <div className="flex flex-wrap items-center gap-2.5 mb-4">
+              <span className="px-3 py-1 rounded-full bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest whitespace-nowrap shrink-0">
                 {section.title}
               </span>
               <span className="text-xs text-neutral-600 dark:text-neutral-400">

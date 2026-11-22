@@ -23,8 +23,34 @@ import {
 import { auth, db, googleProvider } from '../lib/firebase';
 import { clearCalendarAccessToken } from '../lib/googleCalendar';
 import { runOneTimeAdminSampleCleanup } from '../lib/seedData';
-import { hashInviteCode, toDate } from '../lib/utils';
-import { BookmarkItem, CollaboratorPublic, OutletType, Post, UserAccount } from '../types/editorial';
+import { calculateAdultAgeFromBirthYear, hashInviteCode, toDate, uploadMediaAsset } from '../lib/utils';
+import {
+  BookmarkItem,
+  CollaboratorPublic,
+  OutletType,
+  PoliticalAffiliationChoice,
+  Post,
+  UserAccount,
+} from '../types/editorial';
+
+export interface RegisterCollaboratorInput {
+  outletName: string;
+  outletType: OutletType;
+  email: string;
+  password: string;
+  inviteCode: string;
+  birthYear: number;
+  profession?: string;
+  jobTitle?: string;
+  organization?: string;
+  city?: string;
+  country?: string;
+  politicalAffiliation?: PoliticalAffiliationChoice;
+  politicalPartyName?: string;
+  politicalPartyRole?: string;
+  politicalPartyLogoFile?: File | null;
+  politicalConsentAccepted?: boolean;
+}
 
 interface AuthContextValue {
   firebaseUser: User | null;
@@ -38,13 +64,7 @@ interface AuthContextValue {
   loginWithEmail: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   registerReader: (name: string, email: string, password: string) => Promise<void>;
-  registerCollaborator: (params: {
-    outletName: string;
-    outletType: OutletType;
-    email: string;
-    password: string;
-    inviteCode: string;
-  }) => Promise<{ status: 'active' | 'pending' }>;
+  registerCollaborator: (params: RegisterCollaboratorInput) => Promise<{ status: 'active' | 'pending' }>;
   sendPasswordReset: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   toggleBookmark: (post: Post) => Promise<boolean>;
@@ -212,18 +232,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const registerCollaborator = async (params: {
-    outletName: string;
-    outletType: OutletType;
-    email: string;
-    password: string;
-    inviteCode: string;
-  }): Promise<{ status: 'active' | 'pending' }> => {
+  const registerCollaborator = async (
+    params: RegisterCollaboratorInput
+  ): Promise<{ status: 'active' | 'pending' }> => {
     const cleanOutletName = params.outletName.trim().slice(0, 120);
     const cleanEmail = params.email.trim().slice(0, 200);
     if (cleanOutletName.length < 2) {
       throw new Error('El nombre del medio o periodista debe tener al menos 2 caracteres.');
     }
+    const adultAge = calculateAdultAgeFromBirthYear(params.birthYear);
+    if (adultAge === null) {
+      throw new Error('Debes ser mayor de 18 años e ingresar un año de nacimiento válido.');
+    }
+
+    const politicalChoice: PoliticalAffiliationChoice = params.politicalAffiliation || '';
+    const cleanPartyName = (params.politicalPartyName || '').trim().slice(0, 140);
+    const cleanPartyRole = (params.politicalPartyRole || '').trim().slice(0, 120);
+    if (politicalChoice === 'yes') {
+      if (!cleanPartyName) {
+        throw new Error('Indica el nombre del partido o movimiento político.');
+      }
+      if (params.politicalConsentAccepted !== true) {
+        throw new Error(
+          'Debes aceptar el consentimiento expreso (Ley 1581 de 2012) para guardar tu afiliación política.'
+        );
+      }
+    }
+
     const cleanCode = params.inviteCode.trim();
     if (!cleanCode) {
       throw new Error('Debes ingresar el código de invitación único.');
@@ -252,6 +287,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const uid = cred.user.uid;
+    let uploadedPartyLogoUrl = '';
+    if (politicalChoice === 'yes' && params.politicalPartyLogoFile) {
+      try {
+        const res = await uploadMediaAsset(params.politicalPartyLogoFile, `party_logos/${uid}`, undefined, 'party_logo');
+        uploadedPartyLogoUrl = res.url.slice(0, 400000);
+      } catch (uploadErr) {
+        console.warn('No se pudo subir el logotipo político en el registro:', uploadErr);
+      }
+    }
+
+    const cleanProfession = (params.profession || '').trim().slice(0, 120);
+    const cleanJobTitle = (params.jobTitle || '').trim().slice(0, 120);
+    const cleanOrganization = (params.organization || '').trim().slice(0, 140);
+    const cleanCity = (params.city || '').trim().slice(0, 80);
+    const cleanCountry = (params.country || '').trim().slice(0, 80);
+    const consentIso = politicalChoice === 'yes' && params.politicalConsentAccepted ? new Date().toISOString() : '';
+
     try {
       const batch = writeBatch(db);
       batch.set(doc(db, 'users', uid), {
@@ -264,17 +316,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      // Public collaborator profile: strict defaults — NO birthYear, NO consent logs, optional data hidden by default
       batch.set(doc(db, 'collaborators_public', uid), {
         uid,
         name: cleanOutletName,
         outletType: params.outletType,
-        bio: '',
         status: targetStatus,
         inviteHash,
         postCount: 0,
+        showInDirectory: false,
+        showAvatar: false,
+        showBio: false,
+        showWebsite: false,
+        showSocialTwitter: false,
+        showSocialInstagram: false,
+        showSocialYoutube: false,
+        showPublicEmail: false,
+        showLocation: false,
+        showTopics: false,
+        showJoinDate: false,
+        showPostCount: false,
+        showProfession: false,
+        showJobTitle: false,
+        showOrganization: false,
+        showCityCountry: false,
+        showAge: false,
+        showPoliticalAffiliation: false,
+        showPoliticalPartyLogo: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      // Private collaborator draft & sensitive profile: only owner + admin can read
+      const settingsPayload: Record<string, unknown> = {
+        uid,
+        name: cleanOutletName,
+        outletType: params.outletType,
+        birthYear: Number(params.birthYear),
+        profession: cleanProfession,
+        jobTitle: cleanJobTitle,
+        organization: cleanOrganization,
+        city: cleanCity,
+        country: cleanCountry,
+        politicalAffiliation: politicalChoice,
+        politicalPartyName: politicalChoice === 'yes' ? cleanPartyName : '',
+        politicalPartyRole: politicalChoice === 'yes' ? cleanPartyRole : '',
+        politicalPartyLogoUrl: politicalChoice === 'yes' ? uploadedPartyLogoUrl : '',
+        politicalConsentAccepted: politicalChoice === 'yes' ? true : false,
+        politicalConsentAcceptedAt: consentIso,
+        bio: '',
+        avatarUrl: '',
+        websiteUrl: '',
+        socialTwitter: '',
+        socialInstagram: '',
+        socialYoutube: '',
+        publicEmail: '',
+        location: '',
+        topics: [],
+        showInDirectory: false,
+        showAvatar: false,
+        showBio: false,
+        showWebsite: false,
+        showSocialTwitter: false,
+        showSocialInstagram: false,
+        showSocialYoutube: false,
+        showPublicEmail: false,
+        showLocation: false,
+        showTopics: false,
+        showJoinDate: false,
+        showPostCount: false,
+        showProfession: false,
+        showJobTitle: false,
+        showOrganization: false,
+        showCityCountry: false,
+        showAge: false,
+        showPoliticalAffiliation: false,
+        showPoliticalPartyLogo: false,
+        updatedAt: serverTimestamp(),
+      };
+      batch.set(doc(db, 'collaborator_settings', uid), settingsPayload);
       await batch.commit();
       sendEmailVerification(cred.user).catch(() => undefined);
       await loadUserDocs(cred.user);

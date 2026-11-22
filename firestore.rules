@@ -26,6 +26,11 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active'
+        ) ||
         (request.auth.token.email == 'trujillogordillooo@gmail.com' && request.auth.token.email_verified == true)
       );
     }
@@ -43,6 +48,21 @@ service cloud.firestore {
     }
     function isOptionalNumber(data, field, minVal, maxVal) {
       return !(field in data) || (data[field] is number && data[field] >= minVal && data[field] <= maxVal);
+    }
+    function isValidAdultBirthYear(data) {
+      return !('birthYear' in data) || (
+        data.birthYear is number &&
+        data.birthYear >= 1900 &&
+        data.birthYear <= request.time.date().year() - 18
+      );
+    }
+    function hasValidPoliticalConsent(data) {
+      return !('politicalAffiliation' in data) ||
+        data.politicalAffiliation in ['', 'no', 'yes', 'prefer_not_to_say'] &&
+        (
+          data.politicalAffiliation != 'yes' ||
+          (('politicalConsentAccepted' in data) && data.politicalConsentAccepted == true)
+        );
     }
     function isValidInviteTokenRef(hash) {
       return hash is string &&
@@ -66,14 +86,37 @@ service cloud.firestore {
         data.createdAt is timestamp;
     }
 
+    // Public admin identity: NEVER stores birthYear or private consent logs
     function isValidAdminPublicIdentity(data) {
       return data.keys().hasAll(['id', 'identityType', 'name', 'outletType', 'showInDirectory', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'identityType', 'name', 'roleTitle', 'outletType', 'bio', 'avatarUrl', 'coverUrl', 'websiteUrl', 'socialTwitter', 'socialInstagram', 'socialYoutube', 'publicEmail', 'location', 'topics', 'showInDirectory', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id', 'identityType', 'name', 'roleTitle', 'outletType',
+          'profession', 'jobTitle', 'organization', 'city', 'country', 'publicAge',
+          'politicalAffiliation', 'politicalPartyName', 'politicalPartyRole', 'politicalPartyLogoUrl',
+          'bio', 'avatarUrl', 'coverUrl', 'websiteUrl', 'socialTwitter', 'socialInstagram', 'socialYoutube',
+          'publicEmail', 'location', 'topics',
+          'showInDirectory', 'showAvatar', 'showBio', 'showWebsite',
+          'showSocialTwitter', 'showSocialInstagram', 'showSocialYoutube',
+          'showPublicEmail', 'showLocation', 'showTopics',
+          'showProfession', 'showJobTitle', 'showOrganization', 'showCityCountry',
+          'showAge', 'showPoliticalAffiliation', 'showPoliticalPartyLogo',
+          'updatedAt'
+        ]) &&
         data.id in ['owner', 'magazine'] &&
         data.identityType == data.id &&
         data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
         isOptionalString(data, 'roleTitle', 120) &&
         data.outletType in ['medio', 'independiente'] &&
+        isOptionalString(data, 'profession', 120) &&
+        isOptionalString(data, 'jobTitle', 120) &&
+        isOptionalString(data, 'organization', 140) &&
+        isOptionalString(data, 'city', 80) &&
+        isOptionalString(data, 'country', 80) &&
+        isOptionalNumber(data, 'publicAge', 18, 120) &&
+        (!('politicalAffiliation' in data) || data.politicalAffiliation in ['', 'no', 'yes', 'prefer_not_to_say']) &&
+        isOptionalString(data, 'politicalPartyName', 140) &&
+        isOptionalString(data, 'politicalPartyRole', 120) &&
+        isOptionalString(data, 'politicalPartyLogoUrl', 400000) &&
         isOptionalString(data, 'bio', 2000) &&
         isOptionalString(data, 'avatarUrl', 400000) &&
         isOptionalString(data, 'coverUrl', 400000) &&
@@ -85,6 +128,85 @@ service cloud.firestore {
         isOptionalString(data, 'location', 120) &&
         (!('topics' in data) || (data.topics is list && data.topics.size() <= 15)) &&
         data.showInDirectory is bool &&
+        isOptionalBool(data, 'showAvatar') &&
+        isOptionalBool(data, 'showBio') &&
+        isOptionalBool(data, 'showWebsite') &&
+        isOptionalBool(data, 'showSocialTwitter') &&
+        isOptionalBool(data, 'showSocialInstagram') &&
+        isOptionalBool(data, 'showSocialYoutube') &&
+        isOptionalBool(data, 'showPublicEmail') &&
+        isOptionalBool(data, 'showLocation') &&
+        isOptionalBool(data, 'showTopics') &&
+        isOptionalBool(data, 'showProfession') &&
+        isOptionalBool(data, 'showJobTitle') &&
+        isOptionalBool(data, 'showOrganization') &&
+        isOptionalBool(data, 'showCityCountry') &&
+        isOptionalBool(data, 'showAge') &&
+        isOptionalBool(data, 'showPoliticalAffiliation') &&
+        isOptionalBool(data, 'showPoliticalPartyLogo') &&
+        data.updatedAt == request.time;
+    }
+
+    function isValidAdminPrivateIdentity(data) {
+      return data.keys().hasAll(['id', 'identityType', 'name', 'outletType', 'showInDirectory', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id', 'identityType', 'name', 'roleTitle', 'outletType',
+          'profession', 'jobTitle', 'organization', 'city', 'country', 'birthYear',
+          'politicalAffiliation', 'politicalPartyName', 'politicalPartyRole', 'politicalPartyLogoUrl',
+          'politicalConsentAccepted', 'politicalConsentAcceptedAt',
+          'bio', 'avatarUrl', 'coverUrl', 'websiteUrl', 'socialTwitter', 'socialInstagram', 'socialYoutube',
+          'publicEmail', 'location', 'topics',
+          'showInDirectory', 'showAvatar', 'showBio', 'showWebsite',
+          'showSocialTwitter', 'showSocialInstagram', 'showSocialYoutube',
+          'showPublicEmail', 'showLocation', 'showTopics',
+          'showProfession', 'showJobTitle', 'showOrganization', 'showCityCountry',
+          'showAge', 'showPoliticalAffiliation', 'showPoliticalPartyLogo',
+          'updatedAt'
+        ]) &&
+        data.id in ['owner', 'magazine'] &&
+        data.identityType == data.id &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        isOptionalString(data, 'roleTitle', 120) &&
+        data.outletType in ['medio', 'independiente'] &&
+        isOptionalString(data, 'profession', 120) &&
+        isOptionalString(data, 'jobTitle', 120) &&
+        isOptionalString(data, 'organization', 140) &&
+        isOptionalString(data, 'city', 80) &&
+        isOptionalString(data, 'country', 80) &&
+        isValidAdultBirthYear(data) &&
+        hasValidPoliticalConsent(data) &&
+        isOptionalString(data, 'politicalPartyName', 140) &&
+        isOptionalString(data, 'politicalPartyRole', 120) &&
+        isOptionalString(data, 'politicalPartyLogoUrl', 400000) &&
+        isOptionalBool(data, 'politicalConsentAccepted') &&
+        isOptionalString(data, 'politicalConsentAcceptedAt', 60) &&
+        isOptionalString(data, 'bio', 2000) &&
+        isOptionalString(data, 'avatarUrl', 400000) &&
+        isOptionalString(data, 'coverUrl', 400000) &&
+        isOptionalString(data, 'websiteUrl', 500) &&
+        isOptionalString(data, 'socialTwitter', 300) &&
+        isOptionalString(data, 'socialInstagram', 300) &&
+        isOptionalString(data, 'socialYoutube', 300) &&
+        isOptionalString(data, 'publicEmail', 200) &&
+        isOptionalString(data, 'location', 120) &&
+        (!('topics' in data) || (data.topics is list && data.topics.size() <= 15)) &&
+        data.showInDirectory is bool &&
+        isOptionalBool(data, 'showAvatar') &&
+        isOptionalBool(data, 'showBio') &&
+        isOptionalBool(data, 'showWebsite') &&
+        isOptionalBool(data, 'showSocialTwitter') &&
+        isOptionalBool(data, 'showSocialInstagram') &&
+        isOptionalBool(data, 'showSocialYoutube') &&
+        isOptionalBool(data, 'showPublicEmail') &&
+        isOptionalBool(data, 'showLocation') &&
+        isOptionalBool(data, 'showTopics') &&
+        isOptionalBool(data, 'showProfession') &&
+        isOptionalBool(data, 'showJobTitle') &&
+        isOptionalBool(data, 'showOrganization') &&
+        isOptionalBool(data, 'showCityCountry') &&
+        isOptionalBool(data, 'showAge') &&
+        isOptionalBool(data, 'showPoliticalAffiliation') &&
+        isOptionalBool(data, 'showPoliticalPartyLogo') &&
         data.updatedAt == request.time;
     }
 
@@ -176,14 +298,20 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    // Public collaborator profile: NEVER stores birthYear or private consent logs
     function isValidCollaboratorPublic(data) {
       return data.keys().hasAll(['uid', 'name', 'outletType', 'status', 'postCount', 'createdAt', 'updatedAt']) &&
         data.keys().hasOnly([
-          'uid', 'name', 'outletType', 'bio', 'avatarUrl', 'coverUrl', 'websiteUrl',
+          'uid', 'name', 'outletType',
+          'profession', 'jobTitle', 'organization', 'city', 'country', 'publicAge',
+          'politicalAffiliation', 'politicalPartyName', 'politicalPartyRole', 'politicalPartyLogoUrl',
+          'bio', 'avatarUrl', 'coverUrl', 'websiteUrl',
           'socialTwitter', 'socialInstagram', 'socialYoutube', 'publicEmail', 'location', 'topics',
           'showInDirectory', 'showAvatar', 'showBio', 'showWebsite',
           'showSocialTwitter', 'showSocialInstagram', 'showSocialYoutube',
           'showPublicEmail', 'showLocation', 'showTopics', 'showJoinDate', 'showPostCount',
+          'showProfession', 'showJobTitle', 'showOrganization', 'showCityCountry',
+          'showAge', 'showPoliticalAffiliation', 'showPoliticalPartyLogo',
           'directoryHidden', 'directoryFeatured', 'directoryOrder',
           'status', 'inviteHash', 'postCount', 'createdAt', 'updatedAt'
         ]) &&
@@ -192,6 +320,16 @@ service cloud.firestore {
         data.outletType in ['medio', 'independiente'] &&
         data.status in ['active', 'pending', 'suspended'] &&
         data.postCount is number && data.postCount >= 0 &&
+        isOptionalString(data, 'profession', 120) &&
+        isOptionalString(data, 'jobTitle', 120) &&
+        isOptionalString(data, 'organization', 140) &&
+        isOptionalString(data, 'city', 80) &&
+        isOptionalString(data, 'country', 80) &&
+        isOptionalNumber(data, 'publicAge', 18, 120) &&
+        (!('politicalAffiliation' in data) || data.politicalAffiliation in ['', 'no', 'yes', 'prefer_not_to_say']) &&
+        isOptionalString(data, 'politicalPartyName', 140) &&
+        isOptionalString(data, 'politicalPartyRole', 120) &&
+        isOptionalString(data, 'politicalPartyLogoUrl', 400000) &&
         isOptionalString(data, 'bio', 2000) &&
         isOptionalString(data, 'avatarUrl', 400000) &&
         isOptionalString(data, 'coverUrl', 400000) &&
@@ -214,6 +352,13 @@ service cloud.firestore {
         isOptionalBool(data, 'showTopics') &&
         isOptionalBool(data, 'showJoinDate') &&
         isOptionalBool(data, 'showPostCount') &&
+        isOptionalBool(data, 'showProfession') &&
+        isOptionalBool(data, 'showJobTitle') &&
+        isOptionalBool(data, 'showOrganization') &&
+        isOptionalBool(data, 'showCityCountry') &&
+        isOptionalBool(data, 'showAge') &&
+        isOptionalBool(data, 'showPoliticalAffiliation') &&
+        isOptionalBool(data, 'showPoliticalPartyLogo') &&
         isOptionalBool(data, 'directoryHidden') &&
         isOptionalBool(data, 'directoryFeatured') &&
         isOptionalNumber(data, 'directoryOrder', -1000, 10000) &&
@@ -225,16 +370,34 @@ service cloud.firestore {
     function isValidCollaboratorSettings(data) {
       return data.keys().hasAll(['uid', 'name', 'outletType', 'updatedAt']) &&
         data.keys().hasOnly([
-          'uid', 'name', 'outletType', 'bio', 'avatarUrl', 'coverUrl', 'websiteUrl',
+          'uid', 'name', 'outletType',
+          'profession', 'jobTitle', 'organization', 'city', 'country', 'birthYear',
+          'politicalAffiliation', 'politicalPartyName', 'politicalPartyRole', 'politicalPartyLogoUrl',
+          'politicalConsentAccepted', 'politicalConsentAcceptedAt',
+          'bio', 'avatarUrl', 'coverUrl', 'websiteUrl',
           'socialTwitter', 'socialInstagram', 'socialYoutube', 'publicEmail', 'location', 'topics',
           'showInDirectory', 'showAvatar', 'showBio', 'showWebsite',
           'showSocialTwitter', 'showSocialInstagram', 'showSocialYoutube',
           'showPublicEmail', 'showLocation', 'showTopics', 'showJoinDate', 'showPostCount',
+          'showProfession', 'showJobTitle', 'showOrganization', 'showCityCountry',
+          'showAge', 'showPoliticalAffiliation', 'showPoliticalPartyLogo',
           'updatedAt'
         ]) &&
         isValidId(data.uid) &&
         data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
         data.outletType in ['medio', 'independiente'] &&
+        isOptionalString(data, 'profession', 120) &&
+        isOptionalString(data, 'jobTitle', 120) &&
+        isOptionalString(data, 'organization', 140) &&
+        isOptionalString(data, 'city', 80) &&
+        isOptionalString(data, 'country', 80) &&
+        isValidAdultBirthYear(data) &&
+        hasValidPoliticalConsent(data) &&
+        isOptionalString(data, 'politicalPartyName', 140) &&
+        isOptionalString(data, 'politicalPartyRole', 120) &&
+        isOptionalString(data, 'politicalPartyLogoUrl', 400000) &&
+        isOptionalBool(data, 'politicalConsentAccepted') &&
+        isOptionalString(data, 'politicalConsentAcceptedAt', 60) &&
         isOptionalString(data, 'bio', 2000) &&
         isOptionalString(data, 'avatarUrl', 400000) &&
         isOptionalString(data, 'coverUrl', 400000) &&
@@ -257,6 +420,13 @@ service cloud.firestore {
         isOptionalBool(data, 'showTopics') &&
         isOptionalBool(data, 'showJoinDate') &&
         isOptionalBool(data, 'showPostCount') &&
+        isOptionalBool(data, 'showProfession') &&
+        isOptionalBool(data, 'showJobTitle') &&
+        isOptionalBool(data, 'showOrganization') &&
+        isOptionalBool(data, 'showCityCountry') &&
+        isOptionalBool(data, 'showAge') &&
+        isOptionalBool(data, 'showPoliticalAffiliation') &&
+        isOptionalBool(data, 'showPoliticalPartyLogo') &&
         data.updatedAt == request.time;
     }
 
@@ -289,12 +459,16 @@ service cloud.firestore {
     function isValidPost(data) {
       return data.keys().hasAll(['id', 'title', 'slug', 'type', 'status', 'featured', 'breaking', 'isSample', 'categoryId', 'categoryName', 'categorySlug', 'tags', 'authorId', 'authorName', 'blocks', 'readTimeMinutes', 'viewCount', 'commentCount', 'createdAt', 'updatedAt']) &&
         data.keys().hasOnly([
-          'id', 'title', 'slug', 'subtitle', 'type', 'editorialKind', 'status', 'featured', 'breaking', 'isSample',
+          'id', 'title', 'slug', 'subtitle', 'type', 'editorialKind', 'status', 'featured', 'breaking', 'pinnedInFeed', 'isSample',
           'categoryId', 'categoryName', 'categorySlug', 'seriesId', 'seriesTitle', 'tags',
           'authorId', 'authorProfileId', 'authorIdentityType', 'authorVerified', 'authorName', 'authorAvatar', 'authorOutletType',
-          'coverImage', 'coverAlt', 'coverCredit', 'blocks', 'galleryItems', 'corrections',
+          'coverImage', 'coverAlt', 'coverCredit', 'coverLayout', 'headerStyle', 'accentColor', 'paragraphIndent',
+          'apaMode', 'apaReferences', 'showTableOfContents',
+          'blocks', 'galleryItems', 'corrections',
           'keyPoints', 'sensitiveContent', 'sensitiveWarning', 'sources', 'seoDescription', 'commentsEnabled',
-          'mediaUrl', 'mediaSourceType', 'documentTitle', 'audioDurationSec',
+          'mediaUrl', 'mediaSourceType', 'mediaChapters', 'mediaTranscript', 'mediaSubtitlesUrl',
+          'mediaDurationLabel', 'mediaRelatedLinks', 'episodeNotes', 'seasonNumber', 'episodeNumber',
+          'documentTitle', 'audioDurationSec',
           'readTimeMinutes', 'viewCount', 'commentCount', 'publishedAt', 'scheduledFor', 'createdAt', 'updatedAt'
         ]) &&
         isValidId(data.id) &&
@@ -306,6 +480,7 @@ service cloud.firestore {
         data.status in ['draft', 'in_review', 'scheduled', 'published', 'unpublished'] &&
         data.featured is bool &&
         data.breaking is bool &&
+        isOptionalBool(data, 'pinnedInFeed') &&
         data.isSample is bool &&
         isValidId(data.categoryId) &&
         data.categoryName is string && data.categoryName.size() <= 80 &&
@@ -324,6 +499,13 @@ service cloud.firestore {
         isOptionalString(data, 'coverImage', 400000) &&
         isOptionalString(data, 'coverAlt', 300) &&
         isOptionalString(data, 'coverCredit', 200) &&
+        (!('coverLayout' in data) || data.coverLayout in ['full', 'compact', 'overlay']) &&
+        (!('headerStyle' in data) || data.headerStyle in ['classic', 'editorial', 'minimal']) &&
+        isOptionalString(data, 'accentColor', 20) &&
+        isOptionalBool(data, 'paragraphIndent') &&
+        isOptionalBool(data, 'apaMode') &&
+        (!('apaReferences' in data) || (data.apaReferences is list && data.apaReferences.size() <= 60)) &&
+        isOptionalBool(data, 'showTableOfContents') &&
         data.blocks is list && data.blocks.size() <= 80 &&
         (!('galleryItems' in data) || (data.galleryItems is list && data.galleryItems.size() <= 30)) &&
         (!('corrections' in data) || (data.corrections is list && data.corrections.size() <= 30)) &&
@@ -335,6 +517,14 @@ service cloud.firestore {
         isOptionalBool(data, 'commentsEnabled') &&
         isOptionalString(data, 'mediaUrl', 400000) &&
         isOptionalString(data, 'mediaSourceType', 40) &&
+        (!('mediaChapters' in data) || (data.mediaChapters is list && data.mediaChapters.size() <= 50)) &&
+        isOptionalString(data, 'mediaTranscript', 40000) &&
+        isOptionalString(data, 'mediaSubtitlesUrl', 1000) &&
+        isOptionalString(data, 'mediaDurationLabel', 40) &&
+        (!('mediaRelatedLinks' in data) || (data.mediaRelatedLinks is list && data.mediaRelatedLinks.size() <= 20)) &&
+        isOptionalString(data, 'episodeNotes', 10000) &&
+        isOptionalNumber(data, 'seasonNumber', 1, 999) &&
+        isOptionalNumber(data, 'episodeNumber', 1, 9999) &&
         isOptionalString(data, 'documentTitle', 200) &&
         isOptionalNumber(data, 'audioDurationSec', 0, 86400) &&
         data.readTimeMinutes is number && data.readTimeMinutes >= 1 && data.readTimeMinutes <= 180 &&
@@ -481,7 +671,7 @@ service cloud.firestore {
       allow update, delete: if isValidId(userId) && isAdmin();
     }
 
-    // Public Editorial Identities for Owner & Magazine (Admin writes only, zero PII/UID exposed)
+    // Public Editorial Identities for Owner & Magazine (Admin writes only, zero PII/birthYear exposed)
     match /admin_identities/{identityId} {
       allow get: if identityId in ['owner', 'magazine'];
       allow list: if true;
@@ -490,6 +680,16 @@ service cloud.firestore {
         isValidAdminPublicIdentity(incoming()) &&
         incoming().id == identityId;
       allow delete: if false;
+    }
+
+    // Strictly Private Admin Identities (birthYear, Ley 1581 consent, hidden draft fields)
+    match /admin_private/{identityId} {
+      allow get, list: if isAdmin();
+      allow create, update: if identityId in ['owner', 'magazine'] &&
+        isAdmin() &&
+        isValidAdminPrivateIdentity(incoming()) &&
+        incoming().id == identityId;
+      allow delete: if identityId in ['owner', 'magazine'] && isAdmin();
     }
 
     // Public Site Config
@@ -538,6 +738,7 @@ service cloud.firestore {
               incoming().status == 'pending' ||
               (
                 incoming().status == 'active' &&
+                exists(/databases/$(database)/documents/site_config/main) &&
                 get(/databases/$(database)/documents/site_config/main).data.autoApproveCollaborators == true
               )
             )
@@ -574,7 +775,7 @@ service cloud.firestore {
       }
     }
 
-    // Public Opt-In Collaborator & Media Outlet Profiles
+    // Public Opt-In Collaborator & Media Outlet Profiles (NEVER birthYear or private consent)
     match /collaborators_public/{userId} {
       allow get: if isValidId(userId) && (resource.data.status == 'active' || isOwner(userId) || isAdmin());
       allow list: if resource.data.status == 'active' || (isSignedIn() && resource.data.uid == request.auth.uid) || isAdmin();
@@ -608,11 +809,16 @@ service cloud.firestore {
             existing().status == 'active' &&
             incoming().status == existing().status &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'name', 'outletType', 'bio', 'avatarUrl', 'coverUrl', 'websiteUrl',
+              'name', 'outletType',
+              'profession', 'jobTitle', 'organization', 'city', 'country', 'publicAge',
+              'politicalAffiliation', 'politicalPartyName', 'politicalPartyRole', 'politicalPartyLogoUrl',
+              'bio', 'avatarUrl', 'coverUrl', 'websiteUrl',
               'socialTwitter', 'socialInstagram', 'socialYoutube', 'publicEmail', 'location', 'topics',
               'showInDirectory', 'showAvatar', 'showBio', 'showWebsite',
               'showSocialTwitter', 'showSocialInstagram', 'showSocialYoutube',
               'showPublicEmail', 'showLocation', 'showTopics', 'showJoinDate', 'showPostCount',
+              'showProfession', 'showJobTitle', 'showOrganization', 'showCityCountry',
+              'showAge', 'showPoliticalAffiliation', 'showPoliticalPartyLogo',
               'updatedAt'
             ])
           ) ||
@@ -624,7 +830,7 @@ service cloud.firestore {
       allow delete: if isValidId(userId) && isAdmin();
     }
 
-    // Private Collaborator Settings & Draft Profile (Never public)
+    // Private Collaborator Settings & Draft Profile (Never public - contains birthYear and Ley 1581 consent)
     match /collaborator_settings/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
@@ -697,6 +903,7 @@ service cloud.firestore {
             (!('authorProfileId' in incoming()) || incoming().authorProfileId == request.auth.uid) &&
             incoming().featured == false &&
             incoming().breaking == false &&
+            (!('pinnedInFeed' in incoming()) || incoming().pinnedInFeed == false) &&
             incoming().isSample == false &&
             incoming().viewCount == 0 &&
             incoming().commentCount == 0 &&
@@ -704,7 +911,10 @@ service cloud.firestore {
               incoming().status in ['draft', 'in_review', 'scheduled'] ||
               (
                 incoming().status == 'published' &&
-                get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
+                (
+                  !exists(/databases/$(database)/documents/site_config/main) ||
+                  get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
+                )
               )
             )
           )
@@ -727,12 +937,20 @@ service cloud.firestore {
             incoming().updatedAt == request.time &&
             incoming().featured == existing().featured &&
             incoming().breaking == existing().breaking &&
+            (
+              (!('pinnedInFeed' in existing()) && (!('pinnedInFeed' in incoming()) || incoming().pinnedInFeed == false)) ||
+              ('pinnedInFeed' in existing() && 'pinnedInFeed' in incoming() && incoming().pinnedInFeed == existing().pinnedInFeed)
+            ) &&
             incoming().viewCount == existing().viewCount &&
+            incoming().commentCount == existing().commentCount &&
             (
               incoming().status in ['draft', 'in_review', 'scheduled', 'unpublished'] ||
               (
                 incoming().status == 'published' &&
-                get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
+                (
+                  !exists(/databases/$(database)/documents/site_config/main) ||
+                  get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
+                )
               )
             )
           ) ||
@@ -788,11 +1006,27 @@ service cloud.firestore {
         (!('authorIsAdmin' in incoming()) || incoming().authorIsAdmin == false || isAdmin()) &&
         (
           (isSignedIn() && incoming().authorIsAnonymous == false && incoming().authorId == request.auth.uid) ||
-          (incoming().authorIsAnonymous == true && get(/databases/$(database)/documents/site_config/main).data.allowAnonymousComments == true)
+          (
+            incoming().authorIsAnonymous == true &&
+            (
+              !exists(/databases/$(database)/documents/site_config/main) ||
+              get(/databases/$(database)/documents/site_config/main).data.allowAnonymousComments == true
+            )
+          )
         ) &&
         (
-          (get(/databases/$(database)/documents/site_config/main).data.commentModerationMode == 'post' && incoming().status == 'approved') ||
-          (get(/databases/$(database)/documents/site_config/main).data.commentModerationMode == 'pre' && incoming().status == 'pending') ||
+          (
+            (
+              !exists(/databases/$(database)/documents/site_config/main) ||
+              get(/databases/$(database)/documents/site_config/main).data.commentModerationMode == 'post'
+            ) &&
+            incoming().status == 'approved'
+          ) ||
+          (
+            exists(/databases/$(database)/documents/site_config/main) &&
+            get(/databases/$(database)/documents/site_config/main).data.commentModerationMode == 'pre' &&
+            incoming().status == 'pending'
+          ) ||
           isAdmin()
         );
       allow update: if isValidId(commentId) &&

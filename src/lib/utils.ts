@@ -8,6 +8,7 @@ export type MediaSlot =
   | 'gallery'
   | 'avatar'
   | 'logo'
+  | 'party_logo'
   | 'banner'
   | 'infographic'
   | 'document';
@@ -25,6 +26,7 @@ export const MEDIA_SLOT_PRESETS: Record<MediaSlot, MediaSlotPreset> = {
   gallery: { maxDimension: 1400, quality: 0.82, label: 'Galería documental (1400px WebP)' },
   avatar: { maxDimension: 512, quality: 0.84, squareCrop: true, label: 'Foto de perfil 1:1 (512px)' },
   logo: { maxDimension: 640, quality: 0.88, label: 'Logotipo (640px)' },
+  party_logo: { maxDimension: 256, quality: 0.86, label: 'Logo político (256px WebP)' },
   banner: { maxDimension: 1600, quality: 0.82, label: 'Encabezado (1600px)' },
   infographic: { maxDimension: 1920, quality: 0.88, label: 'Infografía alta nitidez (1920px)' },
   document: { maxDimension: 1200, quality: 0.8, label: 'Documento / Anexo' },
@@ -182,15 +184,39 @@ export function formatDateKey(date: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+export function formatSecondsToTimestamp(totalSec: number): string {
+  const safe = Math.max(0, Math.floor(Number.isFinite(totalSec) ? totalSec : 0));
+  const hours = Math.floor(safe / 3600);
+  const mins = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (hours > 0) {
+    return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+export function calculateAdultAgeFromBirthYear(birthYear?: number | string | null): number | null {
+  if (birthYear === undefined || birthYear === null || birthYear === '') return null;
+  const parsed = typeof birthYear === 'string' ? Number(birthYear.trim()) : Number(birthYear);
+  if (!Number.isInteger(parsed)) return null;
+  const currentYear = new Date().getFullYear();
+  if (parsed < 1900 || parsed > currentYear) return null;
+  const age = currentYear - parsed;
+  if (age < 18 || age > 120) return null;
+  return age;
+}
+
 export function estimateReadTime(blocks: ContentBlock[], subtitle = ''): number {
   const words = [
     subtitle,
     ...blocks.map((b) => {
       if (b.text) return b.text;
-      if (b.calloutTitle || b.text) return `${b.calloutTitle || ''} ${b.text || ''}`;
+      if (b.calloutTitle) return `${b.calloutTitle} ${b.text || ''}`;
       if (b.listItems) return b.listItems.join(' ');
       if (b.timelineEntries) return b.timelineEntries.map((t) => `${t.title} ${t.detail}`).join(' ');
       if (b.tableRows) return b.tableRows.flat().join(' ');
+      if (b.columns) return b.columns.map((c) => `${c.title || ''} ${c.body}`).join(' ');
+      if (b.metricItems) return b.metricItems.map((m) => `${m.value} ${m.label} ${m.detail || ''}`).join(' ');
       return '';
     }),
   ]
@@ -521,7 +547,60 @@ export async function uploadDocumentAsset(
   return { url, fileName: file.name, sizeLabel };
 }
 
-export function getEmbedUrl(url: string): { kind: 'iframe' | 'video' | 'link'; src: string } {
+export async function uploadSubtitleAsset(
+  file: File,
+  folder: string,
+  onProgress?: (pct: number) => void
+): Promise<{ url: string; fileName: string }> {
+  if (!/\.vtt$/i.test(file.name) && file.type !== 'text/vtt') {
+    throw new Error('Los subtítulos deben cargarse en formato WebVTT (.vtt).');
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('El archivo de subtítulos supera el límite de 5 MB.');
+  }
+  const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const storageRef = ref(storage, `${folder}/${safeName}`);
+  const url = await new Promise<string>((resolve, reject) => {
+    const task = uploadBytesResumable(storageRef, file, {
+      contentType: 'text/vtt',
+    });
+    const timer = setTimeout(() => {
+      task.cancel();
+      reject(new Error('Tiempo de espera agotado al subir subtítulos.'));
+    }, 30000);
+    task.on(
+      'state_changed',
+      (snap) => {
+        if (onProgress && snap.totalBytes > 0) {
+          onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+        }
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+      async () => {
+        clearTimeout(timer);
+        try {
+          const dl = await getDownloadURL(task.snapshot.ref);
+          resolve(dl);
+        } catch (e) {
+          reject(e);
+        }
+      }
+    );
+  });
+  return { url, fileName: file.name };
+}
+
+export function getEmbedUrl(
+  url: string,
+  startSeconds?: number
+): {
+  kind: 'iframe' | 'video' | 'audio' | 'link';
+  src: string;
+  provider?: 'youtube' | 'vimeo' | 'spotify' | 'soundcloud' | 'direct' | 'other';
+} {
   const trimmed = (url || '').trim();
   if (!trimmed) return { kind: 'link', src: '' };
   try {
@@ -543,32 +622,56 @@ export function getEmbedUrl(url: string): { kind: 'iframe' | 'video' | 'link'; s
         vid = parsed.searchParams.get('v') || '';
       }
       if (vid) {
-        return { kind: 'iframe', src: `https://www.youtube.com/embed/${vid}?rel=0` };
+        const startParam =
+          typeof startSeconds === 'number' && startSeconds > 0 ? `&start=${Math.floor(startSeconds)}` : '';
+        return {
+          kind: 'iframe',
+          src: `https://www.youtube.com/embed/${vid}?rel=0${startParam}`,
+          provider: 'youtube',
+        };
       }
     }
     if (parsed.hostname.includes('vimeo.com')) {
       const vid = parsed.pathname.split('/').filter(Boolean).pop() || '';
       if (vid && /^\d+$/.test(vid)) {
-        return { kind: 'iframe', src: `https://player.vimeo.com/video/${vid}` };
+        const hashTime =
+          typeof startSeconds === 'number' && startSeconds > 0 ? `#t=${Math.floor(startSeconds)}s` : '';
+        return { kind: 'iframe', src: `https://player.vimeo.com/video/${vid}${hashTime}`, provider: 'vimeo' };
       }
     }
-    if (parsed.hostname.includes('twitch.tv')) {
-      const channel = parsed.pathname.split('/').filter(Boolean)[0] || '';
-      const parent = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-      if (channel) {
-        return { kind: 'iframe', src: `https://player.twitch.tv/?channel=${channel}&parent=${parent}` };
+    if (parsed.hostname.includes('open.spotify.com')) {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      const kindSeg = parts[0];
+      const itemId = parts[1];
+      if (kindSeg && itemId && ['episode', 'show', 'track', 'playlist', 'album'].includes(kindSeg)) {
+        return {
+          kind: 'iframe',
+          src: `https://open.spotify.com/embed/${kindSeg}/${itemId}`,
+          provider: 'spotify',
+        };
       }
+    }
+    if (parsed.hostname.includes('soundcloud.com')) {
+      return {
+        kind: 'iframe',
+        src: `https://w.soundcloud.com/player/?url=${encodeURIComponent(trimmed)}&color=%23B91C1C&auto_play=false&show_teaser=true`,
+        provider: 'soundcloud',
+      };
     }
     if (parsed.hostname.includes('facebook.com')) {
       return {
         kind: 'iframe',
         src: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(trimmed)}&show_text=false`,
+        provider: 'other',
       };
     }
-    if (/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i.test(parsed.pathname)) {
-      return { kind: 'video', src: trimmed };
+    if (/\.(mp3|wav|m4a|aac|ogg|flac|opus)(\?.*)?$/i.test(parsed.pathname)) {
+      return { kind: 'audio', src: trimmed, provider: 'direct' };
     }
-    return { kind: 'link', src: trimmed };
+    if (/\.(mp4|webm|m3u8|mov)(\?.*)?$/i.test(parsed.pathname)) {
+      return { kind: 'video', src: trimmed, provider: 'direct' };
+    }
+    return { kind: 'link', src: trimmed, provider: 'other' };
   } catch {
     return { kind: 'link', src: '' };
   }
@@ -835,3 +938,131 @@ export function downloadTextFile(filename: string, content: string, mime = 'text
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+export function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v !== undefined) {
+        out[k] = stripUndefinedDeep(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
+
+export function buildCleanDuplicatePostPayload(
+  source: Post,
+  newId: string,
+  timestamps: { createdAt: unknown; updatedAt: unknown },
+  overrides?: {
+    authorId?: string;
+    authorProfileId?: string;
+    authorIdentityType?: 'owner' | 'magazine' | 'collaborator';
+    authorVerified?: boolean;
+  }
+): Record<string, unknown> {
+  const baseTitle = (source.title || 'Publicación').trim();
+  const copyTitle = `Copia de ${baseTitle}`.slice(0, 220);
+  const copySlug = slugify(`${copyTitle}-${newId.slice(-4)}`).slice(0, 240);
+  const safeAuthorName = (source.authorName || 'Redacción').trim().slice(0, 120);
+  const safeTags = Array.isArray(source.tags)
+    ? source.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, 12)
+    : [];
+
+  const payload: Record<string, unknown> = {
+    id: newId,
+    title: copyTitle.length >= 3 ? copyTitle : 'Copia de nota',
+    slug: copySlug.length >= 2 ? copySlug : `copia-${newId.slice(-6)}`,
+    subtitle: (source.subtitle || '').slice(0, 500),
+    type: source.type && source.type !== 'livestream' ? source.type : 'article',
+    ...(source.editorialKind ? { editorialKind: source.editorialKind } : {}),
+    status: 'draft',
+    featured: false,
+    breaking: false,
+    pinnedInFeed: false,
+    isSample: false,
+    categoryId: source.categoryId || 'cat_politica',
+    categoryName: (source.categoryName || 'Política').slice(0, 80),
+    categorySlug: (source.categorySlug || 'politica').slice(0, 100),
+    ...(source.seriesId ? { seriesId: source.seriesId.slice(0, 128) } : {}),
+    ...(source.seriesTitle ? { seriesTitle: source.seriesTitle.slice(0, 160) } : {}),
+    tags: safeTags,
+    authorId: overrides?.authorId || source.authorId,
+    ...(overrides?.authorProfileId || source.authorProfileId
+      ? { authorProfileId: (overrides?.authorProfileId || source.authorProfileId || '').slice(0, 128) }
+      : {}),
+    ...(overrides?.authorIdentityType || source.authorIdentityType
+      ? { authorIdentityType: overrides?.authorIdentityType || source.authorIdentityType }
+      : {}),
+    authorVerified: overrides?.authorVerified ?? source.authorVerified ?? true,
+    authorName: safeAuthorName.length >= 2 ? safeAuthorName : 'Redacción',
+    ...(source.authorAvatar ? { authorAvatar: source.authorAvatar.slice(0, 400000) } : {}),
+    ...(source.authorOutletType ? { authorOutletType: source.authorOutletType } : {}),
+    ...(source.coverImage ? { coverImage: source.coverImage.slice(0, 400000) } : {}),
+    ...(source.coverAlt ? { coverAlt: source.coverAlt.slice(0, 300) } : {}),
+    ...(source.coverCredit ? { coverCredit: source.coverCredit.slice(0, 200) } : {}),
+    ...(source.coverLayout ? { coverLayout: source.coverLayout } : {}),
+    ...(source.headerStyle ? { headerStyle: source.headerStyle } : {}),
+    ...(source.accentColor && /^#[0-9a-fA-F]{3,8}$/.test(source.accentColor)
+      ? { accentColor: source.accentColor.slice(0, 20) }
+      : {}),
+    paragraphIndent: Boolean(source.paragraphIndent),
+    apaMode: Boolean(source.apaMode),
+    showTableOfContents: Boolean(source.showTableOfContents),
+    ...(Array.isArray(source.apaReferences) && source.apaReferences.length > 0
+      ? { apaReferences: stripUndefinedDeep(source.apaReferences.slice(0, 60)) }
+      : {}),
+    blocks: Array.isArray(source.blocks) ? stripUndefinedDeep(source.blocks.slice(0, 80)) : [],
+    ...(Array.isArray(source.galleryItems) && source.galleryItems.length > 0
+      ? { galleryItems: stripUndefinedDeep(source.galleryItems.slice(0, 30)) }
+      : {}),
+    ...(Array.isArray(source.corrections) && source.corrections.length > 0
+      ? { corrections: stripUndefinedDeep(source.corrections.slice(0, 30)) }
+      : {}),
+    ...(Array.isArray(source.keyPoints) && source.keyPoints.length > 0
+      ? { keyPoints: source.keyPoints.slice(0, 10) }
+      : {}),
+    sensitiveContent: Boolean(source.sensitiveContent),
+    ...(source.sensitiveWarning ? { sensitiveWarning: source.sensitiveWarning.slice(0, 300) } : {}),
+    ...(Array.isArray(source.sources) && source.sources.length > 0
+      ? { sources: stripUndefinedDeep(source.sources.slice(0, 30)) }
+      : {}),
+    ...(source.seoDescription ? { seoDescription: source.seoDescription.slice(0, 320) } : {}),
+    commentsEnabled: source.commentsEnabled ?? true,
+    ...(source.mediaUrl ? { mediaUrl: source.mediaUrl.slice(0, 400000) } : {}),
+    ...(source.mediaSourceType ? { mediaSourceType: source.mediaSourceType.slice(0, 40) } : {}),
+    ...(Array.isArray(source.mediaChapters) && source.mediaChapters.length > 0
+      ? { mediaChapters: stripUndefinedDeep(source.mediaChapters.slice(0, 50)) }
+      : {}),
+    ...(source.mediaTranscript ? { mediaTranscript: source.mediaTranscript.slice(0, 40000) } : {}),
+    ...(source.mediaSubtitlesUrl ? { mediaSubtitlesUrl: source.mediaSubtitlesUrl.slice(0, 1000) } : {}),
+    ...(source.mediaDurationLabel ? { mediaDurationLabel: source.mediaDurationLabel.slice(0, 40) } : {}),
+    ...(Array.isArray(source.mediaRelatedLinks) && source.mediaRelatedLinks.length > 0
+      ? { mediaRelatedLinks: stripUndefinedDeep(source.mediaRelatedLinks.slice(0, 20)) }
+      : {}),
+    ...(source.episodeNotes ? { episodeNotes: source.episodeNotes.slice(0, 10000) } : {}),
+    ...(typeof source.seasonNumber === 'number' && source.seasonNumber >= 1 && source.seasonNumber <= 999
+      ? { seasonNumber: source.seasonNumber }
+      : {}),
+    ...(typeof source.episodeNumber === 'number' && source.episodeNumber >= 1 && source.episodeNumber <= 9999
+      ? { episodeNumber: source.episodeNumber }
+      : {}),
+    ...(source.documentTitle ? { documentTitle: source.documentTitle.slice(0, 200) } : {}),
+    ...(typeof source.audioDurationSec === 'number' && source.audioDurationSec >= 0 && source.audioDurationSec <= 86400
+      ? { audioDurationSec: source.audioDurationSec }
+      : {}),
+    readTimeMinutes: Math.max(1, Math.min(180, Number(source.readTimeMinutes) || 1)),
+    viewCount: 0,
+    commentCount: 0,
+    createdAt: timestamps.createdAt,
+    updatedAt: timestamps.updatedAt,
+  };
+
+  return payload;
+}
+

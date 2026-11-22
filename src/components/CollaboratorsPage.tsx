@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { BookOpen, Calendar, ExternalLink, Filter, Mail, MapPin, Search, Shield, Users } from 'lucide-react';
+import { BookOpen, Briefcase, Calendar, ExternalLink, Filter, Mail, MapPin, Search, Shield, Users } from 'lucide-react';
 import { useSite } from '../context/SiteContext';
-import { formatDateEs, sanitizeExternalUrl } from '../lib/utils';
+import { sanitizeExternalUrl } from '../lib/utils';
 import { AdminPublicIdentity, CollaboratorPublic } from '../types/editorial';
+import { extractPublicAuthorDossier } from './AuthorDossierCard';
 import { EditorialImage } from './EditorialImage';
 import { VerifiedBadge } from './VerifiedBadge';
 
@@ -83,11 +84,11 @@ export const CollaboratorsPage: React.FC = () => {
 
   const renderCollaboratorCard = (c: CollaboratorPublic) => {
     const postTotal = Math.max(c.postCount || 0, countPostsForIdentity(c.uid));
-    const web = c.showWebsite && c.websiteUrl ? sanitizeExternalUrl(c.websiteUrl) : '';
-    const hasSocials =
-      (c.showSocialTwitter && c.socialTwitter) ||
-      (c.showSocialInstagram && c.socialInstagram) ||
-      (c.showSocialYoutube && c.socialYoutube);
+    const d = extractPublicAuthorDossier(c);
+    const web = d.websiteUrl ? sanitizeExternalUrl(d.websiteUrl) : '';
+    const cityLabel = [d.city, d.country].filter(Boolean).join(', ') || d.location || '';
+    const roleSummary = [d.jobTitle, d.organization].filter(Boolean).join(' · ') || d.profession;
+    const hasSocials = Boolean(d.socialTwitter || d.socialInstagram || d.socialYoutube);
 
     return (
       <article
@@ -96,18 +97,13 @@ export const CollaboratorsPage: React.FC = () => {
       >
         <div className="space-y-4">
           <div className="flex items-start gap-4">
-            {c.showAvatar && c.avatarUrl ? (
+            {d.avatarUrl ? (
               <div className="w-16 h-16 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 shrink-0 ring-2 ring-[var(--editorial-primary)]/20">
-                <EditorialImage
-                  src={c.avatarUrl}
-                  alt={c.name}
-                  fallbackTitle={c.name}
-                  allowInDataSaver
-                />
+                <EditorialImage src={d.avatarUrl} alt={d.name} fallbackTitle={d.name} allowInDataSaver />
               </div>
             ) : (
               <div className="w-16 h-16 rounded-full bg-neutral-900 text-white shrink-0 flex items-center justify-center font-display text-2xl font-extrabold uppercase">
-                {c.name.slice(0, 1)}
+                {d.name.slice(0, 1)}
               </div>
             )}
 
@@ -131,28 +127,39 @@ export const CollaboratorsPage: React.FC = () => {
                   }}
                   className="hover:text-[var(--editorial-primary)] truncate"
                 >
-                  {c.name}
+                  {d.name}
                 </a>
                 {c.status === 'active' && <VerifiedBadge size="sm" />}
               </h3>
-              {c.showLocation && c.location && (
-                <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
-                  <MapPin className="w-3 h-3 shrink-0" aria-hidden="true" />
-                  <span className="truncate">{c.location}</span>
+              {roleSummary && (
+                <p className="text-xs text-neutral-600 dark:text-neutral-300 flex items-center gap-1 mt-0.5 truncate">
+                  <Briefcase className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{roleSummary}</span>
+                </p>
+              )}
+              {(cityLabel || d.publicAge !== undefined) && (
+                <p className="text-xs text-neutral-500 flex items-center gap-1.5 mt-0.5">
+                  {cityLabel && (
+                    <span className="inline-flex items-center gap-1 truncate">
+                      <MapPin className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{cityLabel}</span>
+                    </span>
+                  )}
+                  {d.publicAge !== undefined && <span className="shrink-0">· {d.publicAge} años</span>}
                 </p>
               )}
             </div>
           </div>
 
-          {c.showBio && c.bio && (
+          {d.bio && (
             <p className="text-sm text-neutral-700 dark:text-neutral-300 line-clamp-3 leading-relaxed">
-              {c.bio}
+              {d.bio}
             </p>
           )}
 
-          {c.showTopics && Array.isArray(c.topics) && c.topics.length > 0 && (
+          {d.topics.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {c.topics.slice(0, 5).map((topic) => (
+              {d.topics.slice(0, 5).map((topic) => (
                 <span
                   key={topic}
                   className="px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-[11px] font-display uppercase tracking-wider text-neutral-700 dark:text-neutral-300"
@@ -165,7 +172,7 @@ export const CollaboratorsPage: React.FC = () => {
         </div>
 
         <div className="mt-5 pt-4 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
-          {(web || hasSocials || (c.showPublicEmail && c.publicEmail)) && (
+          {(web || hasSocials || d.publicEmail) && (
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-400">
               {web && (
                 <a
@@ -178,28 +185,28 @@ export const CollaboratorsPage: React.FC = () => {
                   <span>Sitio</span>
                 </a>
               )}
-              {c.showPublicEmail && c.publicEmail && (
+              {d.publicEmail && (
                 <a
-                  href={`mailto:${c.publicEmail}`}
+                  href={`mailto:${d.publicEmail}`}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:text-[var(--editorial-primary)]"
                 >
                   <Mail className="w-3 h-3" aria-hidden="true" />
                   <span>Contacto</span>
                 </a>
               )}
-              {c.showSocialTwitter && c.socialTwitter && (
+              {d.socialTwitter && (
                 <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-                  X: {c.socialTwitter}
+                  X: {d.socialTwitter}
                 </span>
               )}
-              {c.showSocialInstagram && c.socialInstagram && (
+              {d.socialInstagram && (
                 <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-                  IG: {c.socialInstagram}
+                  IG: {d.socialInstagram}
                 </span>
               )}
-              {c.showSocialYoutube && c.socialYoutube && (
+              {d.socialYoutube && (
                 <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-                  YT: {c.socialYoutube}
+                  YT: {d.socialYoutube}
                 </span>
               )}
             </div>
@@ -207,16 +214,16 @@ export const CollaboratorsPage: React.FC = () => {
 
           <div className="flex items-center justify-between text-xs text-neutral-500">
             <div className="flex flex-wrap items-center gap-2">
-              {c.showPostCount && (
+              {d.showPostCount && (
                 <span className="font-tabular inline-flex items-center gap-1">
                   <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
                   {postTotal} {postTotal === 1 ? 'publicación' : 'publicaciones'}
                 </span>
               )}
-              {Boolean(c.showJoinDate && c.createdAt) && (
+              {d.joinDateLabel && (
                 <span className="inline-flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5" aria-hidden="true" />
-                  Desde {formatDateEs(c.createdAt)}
+                  Desde {d.joinDateLabel}
                 </span>
               )}
             </div>
@@ -317,7 +324,10 @@ export const CollaboratorsPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {filteredAdmins.map((idCard) => {
               const postTotal = countPostsForIdentity(idCard.id);
-              const web = idCard.websiteUrl ? sanitizeExternalUrl(idCard.websiteUrl) : '';
+              const d = extractPublicAuthorDossier(idCard, { isAdminIdentity: true });
+              const web = d.websiteUrl ? sanitizeExternalUrl(d.websiteUrl) : '';
+              const cityLabel = [d.city, d.country].filter(Boolean).join(', ') || d.location || '';
+              const roleSummary = [d.jobTitle, d.organization].filter(Boolean).join(' · ') || d.profession;
               return (
                 <article
                   key={idCard.id}
@@ -326,16 +336,16 @@ export const CollaboratorsPage: React.FC = () => {
                   <div className="space-y-4">
                     <div className="flex items-start gap-4">
                       <div className="w-16 h-16 rounded-full overflow-hidden bg-neutral-900 shrink-0 ring-2 ring-amber-500/40">
-                        {idCard.avatarUrl ? (
+                        {d.avatarUrl ? (
                           <EditorialImage
-                            src={idCard.avatarUrl}
-                            alt={idCard.name}
-                            fallbackTitle={idCard.name}
+                            src={d.avatarUrl}
+                            alt={d.name}
+                            fallbackTitle={d.name}
                             allowInDataSaver
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-white font-display text-2xl font-extrabold uppercase">
-                            {idCard.name.slice(0, 1)}
+                            {d.name.slice(0, 1)}
                           </div>
                         )}
                       </div>
@@ -352,28 +362,39 @@ export const CollaboratorsPage: React.FC = () => {
                             }}
                             className="hover:text-[var(--editorial-primary)] truncate"
                           >
-                            {idCard.name}
+                            {d.name}
                           </a>
                           <VerifiedBadge size="md" />
                         </h3>
-                        {idCard.location && (
-                          <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3 h-3" aria-hidden="true" />
-                            <span>{idCard.location}</span>
+                        {roleSummary && (
+                          <p className="text-xs text-neutral-600 dark:text-neutral-300 flex items-center gap-1 mt-0.5 truncate">
+                            <Briefcase className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{roleSummary}</span>
+                          </p>
+                        )}
+                        {(cityLabel || d.publicAge !== undefined) && (
+                          <p className="text-xs text-neutral-500 flex items-center gap-1.5 mt-0.5">
+                            {cityLabel && (
+                              <span className="inline-flex items-center gap-1">
+                                <MapPin className="w-3 h-3" aria-hidden="true" />
+                                <span>{cityLabel}</span>
+                              </span>
+                            )}
+                            {d.publicAge !== undefined && <span>· {d.publicAge} años</span>}
                           </p>
                         )}
                       </div>
                     </div>
 
-                    {idCard.bio && (
+                    {d.bio && (
                       <p className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed line-clamp-3">
-                        {idCard.bio}
+                        {d.bio}
                       </p>
                     )}
 
-                    {Array.isArray(idCard.topics) && idCard.topics.length > 0 && (
+                    {d.topics.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
-                        {idCard.topics.slice(0, 5).map((topic) => (
+                        {d.topics.slice(0, 5).map((topic) => (
                           <span
                             key={topic}
                             className="px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-[11px] font-display uppercase tracking-wider"

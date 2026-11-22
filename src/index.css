@@ -74,6 +74,29 @@
   color: var(--editorial-primary);
 }
 
+.editorial-lead {
+  font-size: 1.12em;
+  line-height: 1.68;
+  color: var(--editorial-ink);
+}
+
+.editorial-paragraph-indent {
+  text-indent: 1.75rem;
+}
+
+.apa-blockquote {
+  padding-left: 2.25rem;
+  padding-right: 1rem;
+  font-size: 0.95em;
+  line-height: 1.72;
+}
+
+.apa-reference {
+  padding-left: 2.25rem;
+  text-indent: -2.25rem;
+  overflow-wrap: anywhere;
+}
+
 @keyframes marquee-ticker {
   0% {
     transform: translateX(0%);

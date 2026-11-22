@@ -23,11 +23,14 @@ import {
 } from './components/StaticPages';
 import { AuthProvider } from './context/AuthContext';
 import { DataSaverProvider, useDataSaver } from './context/DataSaverContext';
+import { MediaPlayerProvider, useMediaPlayer } from './context/MediaPlayerContext';
 import { SiteProvider, useSite } from './context/SiteContext';
+import { MiniAudioPlayer } from './components/MiniAudioPlayer';
 
 const EditorialRouter: React.FC = () => {
   const { currentPath } = useSite();
   const { autoNotice, dismissAutoNotice } = useDataSaver();
+  const { currentTrack } = useMediaPlayer();
   const pathname = currentPath.split('?')[0].replace(/\/+$/, '') || '/';
   const segments = pathname.split('/').filter(Boolean);
 
@@ -74,10 +77,11 @@ const EditorialRouter: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8F6F1] text-[#111111] dark:bg-[#0D0D0D] dark:text-[#F4F1EA]">
+    <div className={`min-h-screen flex flex-col bg-[#F8F6F1] text-[#111111] dark:bg-[#0D0D0D] dark:text-[#F4F1EA] ${currentTrack ? 'pb-20' : ''}`}>
       <Header />
       <div className="flex-1">{view}</div>
       <Footer />
+      <MiniAudioPlayer />
       <AuthModal />
       <OfflineIndicator />
 
@@ -85,7 +89,7 @@ const EditorialRouter: React.FC = () => {
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-4 right-4 z-50 max-w-sm rounded-2xl border border-amber-500/40 bg-[#141414] text-white px-4 py-3 shadow-xl flex items-start gap-3 text-xs"
+          className={`fixed ${currentTrack ? 'bottom-20' : 'bottom-4'} right-4 z-50 max-w-sm rounded-2xl border border-amber-500/40 bg-[#141414] text-white px-4 py-3 shadow-xl flex items-start gap-3 text-xs`}
         >
           <WifiOff className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
           <p className="flex-1 leading-relaxed">{autoNotice}</p>
@@ -109,7 +113,9 @@ export default function App() {
       <DataSaverProvider>
         <AuthProvider>
           <SiteProvider>
-            <EditorialRouter />
+            <MediaPlayerProvider>
+              <EditorialRouter />
+            </MediaPlayerProvider>
           </SiteProvider>
         </AuthProvider>
       </DataSaverProvider>

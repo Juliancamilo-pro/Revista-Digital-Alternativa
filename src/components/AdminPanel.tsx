@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -17,14 +18,18 @@ import {
   BarChart3,
   Calendar,
   Check,
+  Copy,
+  Eye,
   EyeOff,
   FolderTree,
   GripVertical,
   History,
   KeyRound,
   LayoutGrid,
+  Lock,
   Mail,
   MessageSquare,
+  Pin,
   Plus,
   RefreshCw,
   Settings,
@@ -34,6 +39,7 @@ import {
   Upload,
   UserCheck,
   Users,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
@@ -41,6 +47,8 @@ import { logAdminActivity } from '../lib/activityLog';
 import { isAppCheckConfigured } from '../lib/appCheck';
 import { db } from '../lib/firebase';
 import {
+  buildCleanDuplicatePostPayload,
+  calculateAdultAgeFromBirthYear,
   downloadTextFile,
   formatDateEs,
   generateId,
@@ -54,19 +62,24 @@ import {
 import {
   AdminActivityLog,
   AdminIdentityId,
+  AdminPrivateIdentity,
   AdminPublicIdentity,
   AnalyticsEvent,
   BlockedCommenter,
+  CollaboratorPrivacyFlags,
   CollaboratorPublic,
+  CollaboratorSettings,
   CommentItem,
   HomepageSectionConfig,
   InviteSecret,
   NewsletterSubscriber,
   OutletType,
+  PoliticalAffiliationChoice,
   Post,
   PostStatus,
   ReportRectification,
   SiteConfig,
+  UserAccount,
 } from '../types/editorial';
 import { BlockEditor } from './BlockEditor';
 import { EditorialImage } from './EditorialImage';
@@ -121,10 +134,30 @@ export const AdminPanel: React.FC = () => {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [logoUploadProgress, setLogoUploadProgress] = useState<number | null>(null);
 
-  // Admin dual public identities drafts
-  const [identityDrafts, setIdentityDrafts] = useState<Record<AdminIdentityId, AdminPublicIdentity>>({
-    owner: adminIdentities.owner,
-    magazine: adminIdentities.magazine,
+  // Admin dual identities drafts (private source -> public projection)
+  const buildPrivateDraftFromPublic = (pub: AdminPublicIdentity): AdminPrivateIdentity => ({
+    ...pub,
+    showAvatar: pub.showAvatar !== undefined ? pub.showAvatar : Boolean(pub.avatarUrl),
+    showBio: pub.showBio !== undefined ? pub.showBio : Boolean(pub.bio),
+    showWebsite: pub.showWebsite !== undefined ? pub.showWebsite : Boolean(pub.websiteUrl),
+    showSocialTwitter: pub.showSocialTwitter !== undefined ? pub.showSocialTwitter : Boolean(pub.socialTwitter),
+    showSocialInstagram: pub.showSocialInstagram !== undefined ? pub.showSocialInstagram : Boolean(pub.socialInstagram),
+    showSocialYoutube: pub.showSocialYoutube !== undefined ? pub.showSocialYoutube : Boolean(pub.socialYoutube),
+    showPublicEmail: pub.showPublicEmail !== undefined ? pub.showPublicEmail : Boolean(pub.publicEmail),
+    showLocation: pub.showLocation !== undefined ? pub.showLocation : Boolean(pub.location),
+    showTopics: pub.showTopics !== undefined ? pub.showTopics : Boolean(pub.topics?.length),
+    showProfession: Boolean(pub.showProfession),
+    showJobTitle: Boolean(pub.showJobTitle),
+    showOrganization: Boolean(pub.showOrganization),
+    showCityCountry: Boolean(pub.showCityCountry),
+    showAge: Boolean(pub.showAge),
+    showPoliticalAffiliation: Boolean(pub.showPoliticalAffiliation),
+    showPoliticalPartyLogo: Boolean(pub.showPoliticalPartyLogo),
+  });
+
+  const [identityDrafts, setIdentityDrafts] = useState<Record<AdminIdentityId, AdminPrivateIdentity>>({
+    owner: buildPrivateDraftFromPublic(adminIdentities.owner),
+    magazine: buildPrivateDraftFromPublic(adminIdentities.magazine),
   });
   const [identityTopicsInput, setIdentityTopicsInput] = useState<Record<AdminIdentityId, string>>({
     owner: (adminIdentities.owner.topics || []).join(', '),
@@ -134,6 +167,18 @@ export const AdminPanel: React.FC = () => {
     owner: null,
     magazine: null,
   });
+  const [identityPartyProgress, setIdentityPartyProgress] = useState<Record<AdminIdentityId, number | null>>({
+    owner: null,
+    magazine: null,
+  });
+
+  // Private collaborator dossier inspection modal (Admin only)
+  const [inspectedCollab, setInspectedCollab] = useState<{
+    publicDoc: CollaboratorPublic;
+    settings: CollaboratorSettings | null;
+    userDoc: UserAccount | null;
+    loading: boolean;
+  } | null>(null);
 
   // Taxonomy creation forms
   const [catName, setCatName] = useState('');
@@ -154,18 +199,35 @@ export const AdminPanel: React.FC = () => {
   }, [siteConfig]);
 
   useEffect(() => {
-    setIdentityDrafts({
-      owner: adminIdentities.owner,
-      magazine: adminIdentities.magazine,
-    });
-    setIdentityTopicsInput({
-      owner: (adminIdentities.owner.topics || []).join(', '),
-      magazine: (adminIdentities.magazine.topics || []).join(', '),
-    });
+    setIdentityDrafts((prev) => ({
+      owner: prev.owner?.birthYear !== undefined || prev.owner?.profession !== undefined
+        ? prev.owner
+        : buildPrivateDraftFromPublic(adminIdentities.owner),
+      magazine: prev.magazine?.birthYear !== undefined || prev.magazine?.profession !== undefined
+        ? prev.magazine
+        : buildPrivateDraftFromPublic(adminIdentities.magazine),
+    }));
   }, [adminIdentities]);
 
   useEffect(() => {
     if (!isAdmin) return;
+
+    const u0 = onSnapshot(
+      collection(db, 'admin_private'),
+      (snap) => {
+        snap.docs.forEach((d) => {
+          const idKey = d.id as AdminIdentityId;
+          if (idKey !== 'owner' && idKey !== 'magazine') return;
+          const data = d.data() as AdminPrivateIdentity;
+          setIdentityDrafts((prev) => ({ ...prev, [idKey]: data }));
+          setIdentityTopicsInput((prev) => ({
+            ...prev,
+            [idKey]: Array.isArray(data.topics) ? data.topics.join(', ') : '',
+          }));
+        });
+      },
+      (err) => console.warn('admin_private listener:', err)
+    );
 
     const u1 = onSnapshot(
       doc(db, 'site_secrets', 'invite'),
@@ -237,6 +299,7 @@ export const AdminPanel: React.FC = () => {
     );
 
     return () => {
+      u0();
       u1();
       u2();
       u3();
@@ -627,9 +690,37 @@ export const AdminPanel: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-xs">{p.authorName}</td>
                       <td className="px-4 py-3 text-xs">{p.categoryName}</td>
-                      <td className="px-4 py-3 text-xs font-display uppercase">{p.status}</td>
+                      <td className="px-4 py-3 text-xs font-display uppercase">
+                        <span>{p.status}</span>
+                        {p.pinnedInFeed && (
+                          <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--editorial-primary)]">
+                            <Pin className="w-3 h-3" /> Fijada
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right font-tabular">{p.viewCount || 0}</td>
                       <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap text-xs font-display font-bold uppercase">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const nextPinned = !p.pinnedInFeed;
+                              await updateDoc(doc(db, 'posts', p.id), {
+                                pinnedInFeed: nextPinned,
+                                updatedAt: serverTimestamp(),
+                              });
+                              notify(nextPinned ? 'Nota fijada en la parte superior.' : 'Nota desfijada.');
+                            } catch {
+                              notify('No se pudo actualizar el fijado.');
+                            }
+                          }}
+                          className={`inline-flex items-center gap-0.5 hover:underline cursor-pointer ${
+                            p.pinnedInFeed ? 'text-[var(--editorial-primary)]' : 'text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          <Pin className="w-3 h-3" aria-hidden="true" />
+                          <span>{p.pinnedInFeed ? 'Desfijar' : 'Fijar'}</span>
+                        </button>
                         <button
                           type="button"
                           onClick={async () => {
@@ -659,6 +750,26 @@ export const AdminPanel: React.FC = () => {
                         </button>
                         <button type="button" onClick={() => setEditingPost(p)} className="hover:underline cursor-pointer">
                           Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const newId = generateId('post');
+                              const payload = buildCleanDuplicatePostPayload(p, newId, {
+                                createdAt: serverTimestamp(),
+                                updatedAt: serverTimestamp(),
+                              });
+                              await setDoc(doc(db, 'posts', newId), payload);
+                              notify('Borrador duplicado creado.');
+                            } catch {
+                              notify('No se pudo duplicar la publicación.');
+                            }
+                          }}
+                          className="inline-flex items-center gap-0.5 text-neutral-600 dark:text-neutral-300 hover:underline cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" aria-hidden="true" />
+                          <span>Duplicar</span>
                         </button>
                         <button
                           type="button"
@@ -1065,6 +1176,34 @@ export const AdminPanel: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-right font-tabular">{count}</td>
                       <td className="px-4 py-3 text-right space-x-2 text-xs font-display font-bold uppercase whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setInspectedCollab({
+                              publicDoc: col,
+                              settings: null,
+                              userDoc: null,
+                              loading: true,
+                            });
+                            try {
+                              const [privSnap, userSnap] = await Promise.all([
+                                getDoc(doc(db, 'collaborator_settings', col.uid)).catch(() => null),
+                                getDoc(doc(db, 'users', col.uid)).catch(() => null),
+                              ]);
+                              setInspectedCollab({
+                                publicDoc: col,
+                                settings: privSnap?.exists() ? (privSnap.data() as CollaboratorSettings) : null,
+                                userDoc: userSnap?.exists() ? (userSnap.data() as UserAccount) : null,
+                                loading: false,
+                              });
+                            } catch {
+                              setInspectedCollab((prev) => (prev ? { ...prev, loading: false } : null));
+                            }
+                          }}
+                          className="text-[var(--editorial-primary)] hover:underline cursor-pointer"
+                        >
+                          Ficha privada
+                        </button>
                         {col.status !== 'active' && (
                           <button
                             type="button"
@@ -1128,6 +1267,122 @@ export const AdminPanel: React.FC = () => {
               )}
             </tbody>
           </table>
+
+          {/* Modal de ficha privada de colaborador (solo Administrador) */}
+          {inspectedCollab && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Ficha privada del colaborador"
+                className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-6 space-y-5 shadow-2xl"
+              >
+                <div className="flex items-start justify-between gap-4 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+                  <div>
+                    <p className="font-display text-[11px] font-bold uppercase tracking-widest text-[var(--editorial-primary)] flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Expediente privado (solo administración)</span>
+                    </p>
+                    <h3 className="font-display text-2xl font-extrabold uppercase mt-0.5">
+                      {inspectedCollab.publicDoc.name}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInspectedCollab(null)}
+                    aria-label="Cerrar ficha privada"
+                    className="p-1.5 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {inspectedCollab.loading ? (
+                  <p className="text-sm text-neutral-500 py-6 text-center">Cargando información protegida...</p>
+                ) : (
+                  <div className="space-y-4 text-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl bg-[#F8F6F1] dark:bg-[#1A1A1A] p-4">
+                      <div>
+                        <span className="text-[11px] font-display uppercase text-neutral-500 block">Correo registrado</span>
+                        <span className="font-semibold">{inspectedCollab.userDoc?.email || 'No registrado'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-display uppercase text-neutral-500 block">UID y estado</span>
+                        <span className="font-tabular text-xs">{inspectedCollab.publicDoc.uid} · {inspectedCollab.publicDoc.status}</span>
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-display uppercase text-neutral-500 block">Año de nacimiento / Edad</span>
+                        <span>
+                          {inspectedCollab.settings?.birthYear
+                            ? `${inspectedCollab.settings.birthYear} (${calculateAdultAgeFromBirthYear(inspectedCollab.settings.birthYear) ?? '—'} años)`
+                            : 'Sin registrar'}
+                          {inspectedCollab.settings?.showAge ? ' · Edad visible al público' : ' · Oculto'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-display uppercase text-neutral-500 block">Ciudad y país</span>
+                        <span>
+                          {[inspectedCollab.settings?.city, inspectedCollab.settings?.country].filter(Boolean).join(', ') || 'Sin registrar'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-2">
+                      <p className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
+                        Perfil profesional y laboral
+                      </p>
+                      <p><strong>A qué se dedica:</strong> {inspectedCollab.settings?.profession || '—'}</p>
+                      <p><strong>Cargo actual:</strong> {inspectedCollab.settings?.jobTitle || '—'}</p>
+                      <p><strong>Organización / medio:</strong> {inspectedCollab.settings?.organization || '—'}</p>
+                      <p><strong>Biografía:</strong> {inspectedCollab.settings?.bio || '—'}</p>
+                    </div>
+
+                    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-2">
+                      <p className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
+                        Afiliación política declarada (Ley 1581 de 2012)
+                      </p>
+                      <p>
+                        <strong>Respuesta:</strong>{' '}
+                        {inspectedCollab.settings?.politicalAffiliation === 'yes'
+                          ? 'Sí'
+                          : inspectedCollab.settings?.politicalAffiliation === 'no'
+                          ? 'No'
+                          : inspectedCollab.settings?.politicalAffiliation === 'prefer_not_to_say'
+                          ? 'Prefiere no decirlo'
+                          : 'Sin responder'}
+                      </p>
+                      {inspectedCollab.settings?.politicalAffiliation === 'yes' && (
+                        <>
+                          <div className="flex items-center gap-3">
+                            {inspectedCollab.settings.politicalPartyLogoUrl && (
+                              <img
+                                src={sanitizeExternalUrl(inspectedCollab.settings.politicalPartyLogoUrl)}
+                                alt="Logo movimiento político"
+                                className="w-10 h-10 rounded-lg object-contain border border-neutral-300 bg-white"
+                              />
+                            )}
+                            <div>
+                              <p><strong>Partido / Movimiento:</strong> {inspectedCollab.settings.politicalPartyName || '—'}</p>
+                              <p className="text-xs text-neutral-500"><strong>Rol interno:</strong> {inspectedCollab.settings.politicalPartyRole || 'No indicado'}</p>
+                            </div>
+                          </div>
+                          <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                            Consentimiento expreso: {inspectedCollab.settings.politicalConsentAccepted ? 'Aceptado' : 'No aceptado'}
+                            {inspectedCollab.settings.politicalConsentAcceptedAt
+                              ? ` · Fecha: ${new Date(inspectedCollab.settings.politicalConsentAcceptedAt).toLocaleString('es-ES')}`
+                              : ''}
+                          </p>
+                        </>
+                      )}
+                      <p className="text-xs text-neutral-500">
+                        Estado público: {inspectedCollab.settings?.showPoliticalAffiliation ? 'Visible en su ficha pública' : 'Estrictamente privado'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1432,13 +1687,13 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* TAB: ADMIN PUBLIC IDENTITIES (OWNER & MAGAZINE) */}
+      {/* TAB: ADMIN IDENTITIES (PRIVATE -> PUBLIC PROJECTION) */}
       {tab === 'admin_profiles' && (
         <div className="space-y-6">
           <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5">
-            <h2 className="font-display text-2xl font-extrabold uppercase">Perfiles públicos del administrador</h2>
-            <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">
-              Configura dos perfiles editoriales públicos para tu cuenta sin exponer nunca tu correo personal ni tu UID privado: tu identidad personal de autor y la identidad institucional de la revista.
+            <h2 className="font-display text-2xl font-extrabold uppercase">Perfiles del administrador y privacidad</h2>
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1 leading-relaxed">
+              Administra tus dos identidades editoriales (personal e institucional). Todo dato nuevo o sensible inicia oculto al público; activa el interruptor de cada campo solo si deseas mostrarlo en la ficha pública. Tu año de nacimiento y registro de consentimiento nunca se publican.
             </p>
           </div>
 
@@ -1446,50 +1701,224 @@ export const AdminPanel: React.FC = () => {
             {(['owner', 'magazine'] as const).map((idKey) => {
               const draft = identityDrafts[idKey];
               const progress = identityAvatarProgress[idKey];
+              const pLogoProgress = identityPartyProgress[idKey];
+              const maxBirthYear = new Date().getFullYear() - 18;
+              const calcAge = calculateAdultAgeFromBirthYear(draft.birthYear);
+
+              const updateDraft = (patch: Partial<AdminPrivateIdentity>) =>
+                setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...prev[idKey], ...patch } }));
+
+              const toggleAdminFlag = (flagKey: keyof CollaboratorPrivacyFlags) => {
+                updateDraft({ [flagKey]: !draft[flagKey] } as Partial<AdminPrivateIdentity>);
+              };
+
+              const renderPrivacyBadge = (flagKey: keyof CollaboratorPrivacyFlags) => {
+                const active = Boolean(draft[flagKey]);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => toggleAdminFlag(flagKey)}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-display font-bold uppercase cursor-pointer ${
+                      active
+                        ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
+                    }`}
+                  >
+                    {active ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                    <span>{active ? 'Público' : 'Oculto'}</span>
+                  </button>
+                );
+              };
+
+              const saveAdminIdentity = async (overridePolitical?: {
+                choice: PoliticalAffiliationChoice;
+                partyName: string;
+                partyRole: string;
+                partyLogoUrl: string;
+                consent: boolean;
+                consentAt: string;
+                showPol: boolean;
+                showLogo: boolean;
+              }) => {
+                const cleanName = (draft.name || '').trim().slice(0, 120);
+                if (cleanName.length < 2) {
+                  notify('El nombre público debe tener al menos 2 caracteres.');
+                  return;
+                }
+
+                let validBirthYear: number | undefined;
+                let publicAge: number | undefined;
+                if (draft.birthYear !== undefined && String(draft.birthYear).trim() !== '') {
+                  const age = calculateAdultAgeFromBirthYear(draft.birthYear);
+                  if (age === null) {
+                    notify(`El año de nacimiento debe corresponder a una persona mayor de 18 años (1900-${maxBirthYear}).`);
+                    return;
+                  }
+                  validBirthYear = Number(draft.birthYear);
+                  publicAge = age;
+                } else if (draft.showAge) {
+                  notify('Ingresa un año de nacimiento válido antes de mostrar la edad al público.');
+                  return;
+                }
+
+                const polChoice: PoliticalAffiliationChoice = overridePolitical
+                  ? overridePolitical.choice
+                  : draft.politicalAffiliation || '';
+                const cleanPartyName = (overridePolitical ? overridePolitical.partyName : draft.politicalPartyName || '').trim().slice(0, 140);
+                const cleanPartyRole = (overridePolitical ? overridePolitical.partyRole : draft.politicalPartyRole || '').trim().slice(0, 120);
+                const cleanPartyLogo = (overridePolitical ? overridePolitical.partyLogoUrl : draft.politicalPartyLogoUrl || '').trim().slice(0, 400000);
+                const consentOk = overridePolitical ? overridePolitical.consent : Boolean(draft.politicalConsentAccepted);
+                const consentAt =
+                  polChoice === 'yes' && consentOk
+                    ? (overridePolitical ? overridePolitical.consentAt : draft.politicalConsentAcceptedAt) ||
+                      new Date().toISOString()
+                    : '';
+
+                if (polChoice === 'yes') {
+                  if (!cleanPartyName) {
+                    notify('Indica el nombre del partido o movimiento político.');
+                    return;
+                  }
+                  if (!consentOk) {
+                    notify('Debes marcar el consentimiento expreso (Ley 1581 de 2012) para guardar afiliación política.');
+                    return;
+                  }
+                }
+
+                const parsedTopics = (identityTopicsInput[idKey] || '')
+                  .split(',')
+                  .map((t) => t.trim().slice(0, 40))
+                  .filter(Boolean)
+                  .slice(0, 15);
+
+                const cleanRoleTitle = (draft.roleTitle || '').trim().slice(0, 120);
+                const cleanProfession = (draft.profession || '').trim().slice(0, 120);
+                const cleanJobTitle = (draft.jobTitle || '').trim().slice(0, 120);
+                const cleanOrg = (draft.organization || '').trim().slice(0, 140);
+                const cleanCity = (draft.city || '').trim().slice(0, 80);
+                const cleanCountry = (draft.country || '').trim().slice(0, 80);
+                const cleanBio = (draft.bio || '').trim().slice(0, 2000);
+                const cleanAvatar = (draft.avatarUrl || '').trim().slice(0, 400000);
+                const cleanWebsite = draft.websiteUrl?.trim() ? sanitizeExternalUrl(draft.websiteUrl.trim()).slice(0, 500) : '';
+                const cleanTw = (draft.socialTwitter || '').trim().slice(0, 300);
+                const cleanIg = (draft.socialInstagram || '').trim().slice(0, 300);
+                const cleanYt = (draft.socialYoutube || '').trim().slice(0, 300);
+                const cleanEmail = (draft.publicEmail || '').trim().slice(0, 200);
+                const cleanLocation = (draft.location || '').trim().slice(0, 120);
+
+                const flagsObj = {
+                  showInDirectory: draft.showInDirectory !== false,
+                  showAvatar: Boolean(draft.showAvatar),
+                  showBio: Boolean(draft.showBio),
+                  showWebsite: Boolean(draft.showWebsite),
+                  showSocialTwitter: Boolean(draft.showSocialTwitter),
+                  showSocialInstagram: Boolean(draft.showSocialInstagram),
+                  showSocialYoutube: Boolean(draft.showSocialYoutube),
+                  showPublicEmail: Boolean(draft.showPublicEmail),
+                  showLocation: Boolean(draft.showLocation),
+                  showTopics: Boolean(draft.showTopics),
+                  showProfession: Boolean(draft.showProfession),
+                  showJobTitle: Boolean(draft.showJobTitle),
+                  showOrganization: Boolean(draft.showOrganization),
+                  showCityCountry: Boolean(draft.showCityCountry),
+                  showAge: Boolean(draft.showAge),
+                  showPoliticalAffiliation: overridePolitical
+                    ? overridePolitical.showPol
+                    : Boolean(draft.showPoliticalAffiliation),
+                  showPoliticalPartyLogo: overridePolitical
+                    ? overridePolitical.showLogo
+                    : Boolean(draft.showPoliticalPartyLogo),
+                };
+
+                try {
+                  const batch = writeBatch(db);
+                  // 1. Private full record
+                  batch.set(doc(db, 'admin_private', idKey), {
+                    id: idKey,
+                    identityType: idKey,
+                    name: cleanName,
+                    roleTitle: cleanRoleTitle,
+                    outletType: draft.outletType === 'medio' ? 'medio' : 'independiente',
+                    profession: cleanProfession,
+                    jobTitle: cleanJobTitle,
+                    organization: cleanOrg,
+                    city: cleanCity,
+                    country: cleanCountry,
+                    ...(validBirthYear !== undefined ? { birthYear: validBirthYear } : {}),
+                    politicalAffiliation: polChoice,
+                    politicalPartyName: polChoice === 'yes' ? cleanPartyName : '',
+                    politicalPartyRole: polChoice === 'yes' ? cleanPartyRole : '',
+                    politicalPartyLogoUrl: polChoice === 'yes' ? cleanPartyLogo : '',
+                    politicalConsentAccepted: polChoice === 'yes' ? Boolean(consentOk) : false,
+                    politicalConsentAcceptedAt: consentAt,
+                    bio: cleanBio,
+                    avatarUrl: cleanAvatar,
+                    websiteUrl: cleanWebsite,
+                    socialTwitter: cleanTw,
+                    socialInstagram: cleanIg,
+                    socialYoutube: cleanYt,
+                    publicEmail: cleanEmail,
+                    location: cleanLocation,
+                    topics: parsedTopics,
+                    ...flagsObj,
+                    updatedAt: serverTimestamp(),
+                  });
+
+                  // 2. Public projection: strictly opted-in fields only, zero birthYear or consent timestamps
+                  batch.set(doc(db, 'admin_identities', idKey), {
+                    id: idKey,
+                    identityType: idKey,
+                    name: cleanName,
+                    roleTitle: cleanRoleTitle,
+                    outletType: draft.outletType === 'medio' ? 'medio' : 'independiente',
+                    ...(flagsObj.showProfession && cleanProfession ? { profession: cleanProfession } : {}),
+                    ...(flagsObj.showJobTitle && cleanJobTitle ? { jobTitle: cleanJobTitle } : {}),
+                    ...(flagsObj.showOrganization && cleanOrg ? { organization: cleanOrg } : {}),
+                    ...(flagsObj.showCityCountry && cleanCity ? { city: cleanCity } : {}),
+                    ...(flagsObj.showCityCountry && cleanCountry ? { country: cleanCountry } : {}),
+                    ...(flagsObj.showAge && publicAge !== undefined ? { publicAge } : {}),
+                    ...(flagsObj.showPoliticalAffiliation && polChoice
+                      ? {
+                          politicalAffiliation: polChoice,
+                          ...(polChoice === 'yes' && cleanPartyName ? { politicalPartyName: cleanPartyName } : {}),
+                          ...(polChoice === 'yes' && cleanPartyRole ? { politicalPartyRole: cleanPartyRole } : {}),
+                          ...(polChoice === 'yes' && flagsObj.showPoliticalPartyLogo && cleanPartyLogo
+                            ? { politicalPartyLogoUrl: cleanPartyLogo }
+                            : {}),
+                        }
+                      : {}),
+                    ...(flagsObj.showBio && cleanBio ? { bio: cleanBio } : {}),
+                    ...(flagsObj.showAvatar && cleanAvatar ? { avatarUrl: cleanAvatar } : {}),
+                    ...(flagsObj.showWebsite && cleanWebsite ? { websiteUrl: cleanWebsite } : {}),
+                    ...(flagsObj.showSocialTwitter && cleanTw ? { socialTwitter: cleanTw } : {}),
+                    ...(flagsObj.showSocialInstagram && cleanIg ? { socialInstagram: cleanIg } : {}),
+                    ...(flagsObj.showSocialYoutube && cleanYt ? { socialYoutube: cleanYt } : {}),
+                    ...(flagsObj.showPublicEmail && cleanEmail ? { publicEmail: cleanEmail } : {}),
+                    ...(flagsObj.showLocation && cleanLocation ? { location: cleanLocation } : {}),
+                    ...(flagsObj.showTopics && parsedTopics.length ? { topics: parsedTopics } : {}),
+                    ...flagsObj,
+                    updatedAt: serverTimestamp(),
+                  });
+
+                  await batch.commit();
+                  await logAdminActivity(
+                    firebaseUser.uid,
+                    adminActorName,
+                    'Identidad editorial actualizada',
+                    `Perfil ${idKey === 'owner' ? 'personal' : 'de revista'}: ${cleanName}`
+                  );
+                  notify(`Perfil "${cleanName}" guardado con su configuración de privacidad.`);
+                } catch {
+                  notify('No se pudo guardar la identidad editorial.');
+                }
+              };
+
               return (
                 <form
                   key={idKey}
-                  onSubmit={async (e) => {
+                  onSubmit={(e) => {
                     e.preventDefault();
-                    const cleanName = (draft.name || '').trim().slice(0, 120);
-                    if (cleanName.length < 2) {
-                      notify('El nombre público debe tener al menos 2 caracteres.');
-                      return;
-                    }
-                    const parsedTopics = (identityTopicsInput[idKey] || '')
-                      .split(',')
-                      .map((t) => t.trim().slice(0, 40))
-                      .filter(Boolean)
-                      .slice(0, 15);
-                    try {
-                      await setDoc(doc(db, 'admin_identities', idKey), {
-                        id: idKey,
-                        identityType: idKey,
-                        name: cleanName,
-                        roleTitle: (draft.roleTitle || '').trim().slice(0, 120),
-                        outletType: draft.outletType === 'medio' ? 'medio' : 'independiente',
-                        bio: (draft.bio || '').trim().slice(0, 2000),
-                        avatarUrl: (draft.avatarUrl || '').trim().slice(0, 400000),
-                        websiteUrl: sanitizeExternalUrl(draft.websiteUrl || '').slice(0, 500),
-                        socialTwitter: (draft.socialTwitter || '').trim().slice(0, 300),
-                        socialInstagram: (draft.socialInstagram || '').trim().slice(0, 300),
-                        socialYoutube: (draft.socialYoutube || '').trim().slice(0, 300),
-                        publicEmail: (draft.publicEmail || '').trim().slice(0, 200),
-                        location: (draft.location || '').trim().slice(0, 120),
-                        topics: parsedTopics,
-                        showInDirectory: draft.showInDirectory !== false,
-                        updatedAt: serverTimestamp(),
-                      });
-                      await logAdminActivity(
-                        firebaseUser.uid,
-                        adminActorName,
-                        'Identidad pública actualizada',
-                        `Perfil ${idKey === 'owner' ? 'personal' : 'de revista'}: ${cleanName}`
-                      );
-                      notify(`Perfil "${cleanName}" actualizado correctamente.`);
-                    } catch {
-                      notify('No se pudo guardar la identidad pública.');
-                    }
+                    saveAdminIdentity();
                   }}
                   className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4"
                 >
@@ -1514,83 +1943,60 @@ export const AdminPanel: React.FC = () => {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Nombre público</label>
+                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Nombre público *</label>
                       <input
                         type="text"
                         required
                         minLength={2}
                         maxLength={120}
                         value={draft.name}
-                        onChange={(e) =>
-                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, name: e.target.value } }))
-                        }
+                        onChange={(e) => updateDraft({ name: e.target.value })}
                         className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Cargo o rol visible</label>
-                      <input
-                        type="text"
-                        maxLength={120}
-                        value={draft.roleTitle || ''}
-                        onChange={(e) =>
-                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, roleTitle: e.target.value } }))
-                        }
-                        placeholder={idKey === 'owner' ? 'Director y editor fundador' : 'Redacción editorial'}
-                        className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                      />
+                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Modalidad y rol</label>
+                      <div className="flex gap-2">
+                        <select
+                          value={draft.outletType}
+                          onChange={(e) => updateDraft({ outletType: e.target.value as OutletType })}
+                          className="w-1/2 px-2.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        >
+                          <option value="independiente">Independiente</option>
+                          <option value="medio">Medio</option>
+                        </select>
+                        <input
+                          type="text"
+                          maxLength={120}
+                          value={draft.roleTitle || ''}
+                          onChange={(e) => updateDraft({ roleTitle: e.target.value })}
+                          placeholder="Rol visible"
+                          className="w-1/2 px-2.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Modalidad</label>
-                      <select
-                        value={draft.outletType}
-                        onChange={(e) =>
-                          setIdentityDrafts((prev) => ({
-                            ...prev,
-                            [idKey]: { ...draft, outletType: e.target.value as OutletType },
-                          }))
-                        }
-                        className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                      >
-                        <option value="independiente">Periodista independiente</option>
-                        <option value="medio">Medio o revista</option>
-                      </select>
+                  {/* Avatar */}
+                  <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-display text-[11px] font-bold uppercase">Foto o emblema (1:1)</span>
+                      {renderPrivacyBadge('showAvatar')}
                     </div>
-                    <div>
-                      <label className="block font-display text-[11px] font-bold uppercase mb-1">Ciudad / Territorio</label>
-                      <input
-                        type="text"
-                        maxLength={120}
-                        value={draft.location || ''}
-                        onChange={(e) =>
-                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, location: e.target.value } }))
-                        }
-                        className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="block font-display text-[11px] font-bold uppercase">Foto o emblema público (1:1)</label>
                     <div className="flex flex-wrap items-center gap-2.5">
                       {draft.avatarUrl && (
-                        <div className="w-11 h-11 rounded-full overflow-hidden border border-neutral-300 dark:border-neutral-700 shrink-0">
+                        <div className="w-10 h-10 rounded-full overflow-hidden border border-neutral-300 dark:border-neutral-700 shrink-0">
                           <EditorialImage src={draft.avatarUrl} alt={draft.name} fallbackTitle={draft.name} allowInDataSaver />
                         </div>
                       )}
                       <input
                         type="text"
                         value={draft.avatarUrl || ''}
-                        onChange={(e) =>
-                          setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, avatarUrl: e.target.value } }))
-                        }
+                        onChange={(e) => updateDraft({ avatarUrl: e.target.value })}
                         placeholder="URL o subir archivo"
-                        className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        className="flex-1 min-w-[160px] px-3 py-1.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
                       />
-                      <label className="px-3.5 py-2 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black font-display text-xs font-bold uppercase cursor-pointer">
+                      <label className="px-3 py-1.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black font-display text-[11px] font-bold uppercase cursor-pointer">
                         Subir
                         <input
                           type="file"
@@ -1607,7 +2013,7 @@ export const AdminPanel: React.FC = () => {
                                 (pct) => setIdentityAvatarProgress((p) => ({ ...p, [idKey]: pct })),
                                 'avatar'
                               );
-                              setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, avatarUrl: res.url } }));
+                              updateDraft({ avatarUrl: res.url });
                             } catch (err) {
                               notify(err instanceof Error ? err.message : 'No se pudo subir la imagen.');
                             } finally {
@@ -1624,73 +2030,292 @@ export const AdminPanel: React.FC = () => {
                     )}
                   </div>
 
-                  <div>
-                    <label className="block font-display text-[11px] font-bold uppercase mb-1">Biografía o presentación</label>
+                  {/* Biografía */}
+                  <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-display text-[11px] font-bold uppercase">Biografía corta</span>
+                      {renderPrivacyBadge('showBio')}
+                    </div>
                     <textarea
-                      rows={3}
+                      rows={2}
                       maxLength={2000}
                       value={draft.bio || ''}
-                      onChange={(e) =>
-                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, bio: e.target.value } }))
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                      onChange={(e) => updateDraft({ bio: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
                     />
                   </div>
 
+                  {/* Extended fields + toggles */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <input
-                      type="url"
-                      value={draft.websiteUrl || ''}
-                      onChange={(e) =>
-                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, websiteUrl: e.target.value } }))
-                      }
-                      placeholder="Sitio web (https://...)"
-                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                    <input
-                      type="email"
-                      value={draft.publicEmail || ''}
-                      onChange={(e) =>
-                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, publicEmail: e.target.value } }))
-                      }
-                      placeholder="Correo público opcional"
-                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                    <input
-                      type="text"
-                      value={draft.socialTwitter || ''}
-                      onChange={(e) =>
-                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, socialTwitter: e.target.value } }))
-                      }
-                      placeholder="X / Twitter"
-                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                    <input
-                      type="text"
-                      value={draft.socialInstagram || ''}
-                      onChange={(e) =>
-                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, socialInstagram: e.target.value } }))
-                      }
-                      placeholder="Instagram"
-                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                    <input
-                      type="text"
-                      value={draft.socialYoutube || ''}
-                      onChange={(e) =>
-                        setIdentityDrafts((prev) => ({ ...prev, [idKey]: { ...draft, socialYoutube: e.target.value } }))
-                      }
-                      placeholder="YouTube"
-                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
+                    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-2.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-display text-[10px] font-bold uppercase">¿A qué se dedica?</span>
+                        {renderPrivacyBadge('showProfession')}
+                      </div>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={draft.profession || ''}
+                        onChange={(e) => updateDraft({ profession: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                    </div>
+                    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-2.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-display text-[10px] font-bold uppercase">Cargo actual</span>
+                        {renderPrivacyBadge('showJobTitle')}
+                      </div>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={draft.jobTitle || ''}
+                        onChange={(e) => updateDraft({ jobTitle: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                    </div>
+                    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-2.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-display text-[10px] font-bold uppercase">Organización / medio</span>
+                        {renderPrivacyBadge('showOrganization')}
+                      </div>
+                      <input
+                        type="text"
+                        maxLength={140}
+                        value={draft.organization || ''}
+                        onChange={(e) => updateDraft({ organization: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                    </div>
+                    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-2.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-display text-[10px] font-bold uppercase">Año nac. (solo edad)</span>
+                        {renderPrivacyBadge('showAge')}
+                      </div>
+                      <input
+                        type="number"
+                        min={1900}
+                        max={maxBirthYear}
+                        value={draft.birthYear ?? ''}
+                        onChange={(e) =>
+                          updateDraft({ birthYear: e.target.value ? Number(e.target.value) : undefined })
+                        }
+                        placeholder={`Ej. 1990`}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                      {calcAge !== null && (
+                        <p className="text-[10px] text-neutral-500">Edad pública si se activa: {calcAge} años</p>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-2.5 space-y-1 sm:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-display text-[10px] font-bold uppercase">Ciudad y país</span>
+                        {renderPrivacyBadge('showCityCountry')}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          maxLength={80}
+                          value={draft.city || ''}
+                          onChange={(e) => updateDraft({ city: e.target.value })}
+                          placeholder="Ciudad"
+                          className="px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <input
+                          type="text"
+                          maxLength={80}
+                          value={draft.country || ''}
+                          onChange={(e) => updateDraft({ country: e.target.value })}
+                          placeholder="País"
+                          className="px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Afiliación política (Admin private + public opt-in) */}
+                  <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-[#F8F6F1] dark:bg-[#1A1A1A] p-3.5 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-display text-[11px] font-bold uppercase text-[var(--editorial-primary)]">
+                        Afiliación política (opcional · Ley 1581)
+                      </span>
+                      {renderPrivacyBadge('showPoliticalAffiliation')}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          ['no', 'No'],
+                          ['yes', 'Sí'],
+                          ['prefer_not_to_say', 'Prefiero no decirlo'],
+                        ] as const
+                      ).map(([val, label]) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() =>
+                            updateDraft({
+                              politicalAffiliation: val,
+                              ...(val !== 'yes' ? { politicalConsentAccepted: false } : {}),
+                            })
+                          }
+                          className={`py-1.5 px-2 rounded-lg border text-[11px] font-display font-bold uppercase cursor-pointer ${
+                            draft.politicalAffiliation === val
+                              ? 'bg-[var(--editorial-primary)] text-white border-[var(--editorial-primary)]'
+                              : 'border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414]'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {draft.politicalAffiliation === 'yes' && (
+                      <div className="space-y-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            maxLength={140}
+                            value={draft.politicalPartyName || ''}
+                            onChange={(e) => updateDraft({ politicalPartyName: e.target.value })}
+                            placeholder="Partido o movimiento *"
+                            className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#141414] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                          <input
+                            type="text"
+                            maxLength={120}
+                            value={draft.politicalPartyRole || ''}
+                            onChange={(e) => updateDraft({ politicalPartyRole: e.target.value })}
+                            placeholder="Rol o cargo (opcional)"
+                            className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#141414] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {draft.politicalPartyLogoUrl && (
+                              <img
+                                src={sanitizeExternalUrl(draft.politicalPartyLogoUrl)}
+                                alt="Logo partido"
+                                className="w-8 h-8 rounded object-contain border border-neutral-300 bg-white"
+                              />
+                            )}
+                            <label className="px-2.5 py-1 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black text-[10px] font-display font-bold uppercase cursor-pointer">
+                              Subir logo partido
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const f = e.target.files?.[0];
+                                  if (!f) return;
+                                  setIdentityPartyProgress((p) => ({ ...p, [idKey]: 5 }));
+                                  try {
+                                    const res = await uploadMediaAsset(
+                                      f,
+                                      `party_logos/${firebaseUser.uid}`,
+                                      (pct) => setIdentityPartyProgress((p) => ({ ...p, [idKey]: pct })),
+                                      'party_logo'
+                                    );
+                                    updateDraft({ politicalPartyLogoUrl: res.url });
+                                  } catch (err) {
+                                    notify(err instanceof Error ? err.message : 'No se pudo subir logo.');
+                                  } finally {
+                                    setTimeout(() => setIdentityPartyProgress((p) => ({ ...p, [idKey]: null })), 600);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                          {renderPrivacyBadge('showPoliticalPartyLogo')}
+                        </div>
+                        {pLogoProgress !== null && (
+                          <div className="h-1 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+                            <div className="h-1 bg-[var(--editorial-primary)]" style={{ width: `${pLogoProgress}%` }} />
+                          </div>
+                        )}
+                        <label className="flex items-start gap-2 text-[11px] leading-snug cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(draft.politicalConsentAccepted)}
+                            onChange={(e) => updateDraft({ politicalConsentAccepted: e.target.checked })}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <strong>Consentimiento Ley 1581:</strong> Autorizo guardar esta afiliación y mostrarla únicamente si activo su visibilidad pública.
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    {draft.politicalAffiliation && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateDraft({
+                            politicalAffiliation: '',
+                            politicalPartyName: '',
+                            politicalPartyRole: '',
+                            politicalPartyLogoUrl: '',
+                            politicalConsentAccepted: false,
+                            politicalConsentAcceptedAt: '',
+                            showPoliticalAffiliation: false,
+                            showPoliticalPartyLogo: false,
+                          });
+                          saveAdminIdentity({
+                            choice: '',
+                            partyName: '',
+                            partyRole: '',
+                            partyLogoUrl: '',
+                            consent: false,
+                            consentAt: '',
+                            showPol: false,
+                            showLogo: false,
+                          });
+                        }}
+                        className="text-[10px] font-display font-bold uppercase text-red-600 hover:underline cursor-pointer"
+                      >
+                        Borrar afiliación política y revocar consentimiento
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Links & topics with individual toggles */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {(
+                      [
+                        ['Sitio web', 'websiteUrl', 'showWebsite', 'https://...'],
+                        ['Correo público', 'publicEmail', 'showPublicEmail', 'contacto@...'],
+                        ['X / Twitter', 'socialTwitter', 'showSocialTwitter', '@usuario'],
+                        ['Instagram', 'socialInstagram', 'showSocialInstagram', '@usuario'],
+                        ['YouTube', 'socialYoutube', 'showSocialYoutube', 'Canal o URL'],
+                        ['Territorio libre', 'location', 'showLocation', 'Bogotá / Colombia'],
+                      ] as const
+                    ).map(([label, fieldKey, flagKey, placeholder]) => (
+                      <div key={fieldKey} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-2.5 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-display text-[10px] font-bold uppercase">{label}</span>
+                          {renderPrivacyBadge(flagKey)}
+                        </div>
+                        <input
+                          type="text"
+                          value={(draft[fieldKey] as string) || ''}
+                          onChange={(e) => updateDraft({ [fieldKey]: e.target.value } as Partial<AdminPrivateIdentity>)}
+                          placeholder={placeholder}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-2.5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-display text-[10px] font-bold uppercase">Temas (separados por coma)</span>
+                      {renderPrivacyBadge('showTopics')}
+                    </div>
                     <input
                       type="text"
                       value={identityTopicsInput[idKey]}
-                      onChange={(e) =>
-                        setIdentityTopicsInput((prev) => ({ ...prev, [idKey]: e.target.value }))
-                      }
-                      placeholder="Temas (separados por coma)"
-                      className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      onChange={(e) => setIdentityTopicsInput((prev) => ({ ...prev, [idKey]: e.target.value }))}
+                      placeholder="Política, investigación, crónica"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
                     />
                   </div>
 
@@ -1698,12 +2323,7 @@ export const AdminPanel: React.FC = () => {
                     <input
                       type="checkbox"
                       checked={draft.showInDirectory !== false}
-                      onChange={(e) =>
-                        setIdentityDrafts((prev) => ({
-                          ...prev,
-                          [idKey]: { ...draft, showInDirectory: e.target.checked },
-                        }))
-                      }
+                      onChange={(e) => updateDraft({ showInDirectory: e.target.checked })}
                     />
                     <span>Mostrar en el directorio «Conozcan a nuestros colaboradores»</span>
                   </label>
@@ -1713,7 +2333,7 @@ export const AdminPanel: React.FC = () => {
                       type="submit"
                       className="px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase cursor-pointer"
                     >
-                      Guardar identidad
+                      Guardar identidad y privacidad
                     </button>
                   </div>
                 </form>

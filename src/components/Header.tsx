@@ -85,7 +85,7 @@ export const Header: React.FC = () => {
 
   return (
     <header className="sticky top-0 z-40 border-b border-neutral-200/80 dark:border-neutral-800/80 bg-[#F8F6F1]/90 dark:bg-[#0D0D0D]/90 backdrop-blur-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4 lg:gap-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 lg:gap-5 xl:gap-8">
         {/* Zone 1: Brand Wordmark */}
         <a
           href="/"
@@ -93,21 +93,21 @@ export const Header: React.FC = () => {
             e.preventDefault();
             handleNav('/');
           }}
-          className="flex items-center gap-2.5 whitespace-nowrap shrink-0 group focus-visible:outline-2 focus-visible:outline-[var(--editorial-primary)]"
+          className="flex items-center gap-2 sm:gap-2.5 min-w-0 sm:shrink-0 group focus-visible:outline-2 focus-visible:outline-[var(--editorial-primary)]"
         >
           <img
             src={logoSrc}
             alt={siteConfig.siteName}
             referrerPolicy="no-referrer"
-            className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg object-contain bg-white p-0.5 border border-neutral-200 dark:border-neutral-700 shadow-xs"
+            className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg object-contain bg-white p-0.5 border border-neutral-200 dark:border-neutral-700 shadow-xs"
           />
-          <span className="font-display text-lg sm:text-xl font-extrabold uppercase tracking-tight text-[#111111] dark:text-[#F4F1EA] group-hover:text-[var(--editorial-primary)] transition-colors">
+          <span className="font-display text-[13.5px] sm:text-lg xl:text-xl font-extrabold uppercase tracking-tight leading-[1.05] text-[#111111] dark:text-[#F4F1EA] group-hover:text-[var(--editorial-primary)] transition-colors sm:whitespace-nowrap">
             {siteConfig.siteName}
           </span>
         </a>
 
         {/* Zone 2: Single-line Category Navigation */}
-        <nav aria-label="Secciones principales" className="hidden lg:flex items-center gap-5 text-sm font-display font-semibold uppercase tracking-wide">
+        <nav aria-label="Secciones principales" className="hidden lg:flex items-center gap-3.5 xl:gap-5 text-xs xl:text-sm font-display font-semibold uppercase tracking-wide min-w-0">
           {primaryCategories.map((cat) => {
             const target = `/categoria/${cat.slug}`;
             const active = currentPath === target;
@@ -185,7 +185,7 @@ export const Header: React.FC = () => {
         </nav>
 
         {/* Zone 3: Compact Actions */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
           {/* Selector Modo Ahorro de Datos */}
           <div className="relative" ref={saverRef}>
             <button
@@ -196,7 +196,7 @@ export const Header: React.FC = () => {
                 dataSaverMode === 'auto' ? 'Automático' : dataSaverMode === 'on' ? 'Activado' : 'Desactivado'
               }`}
               title={`Ahorro de datos (${connectionLabel})`}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-display font-bold uppercase tracking-wider cursor-pointer transition-colors border ${
+              className={`inline-flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-full text-xs font-display font-bold uppercase tracking-wider cursor-pointer transition-colors border ${
                 isDataSaverActive
                   ? 'bg-amber-500/15 border-amber-500/50 text-amber-800 dark:text-amber-300'
                   : 'border-neutral-300/70 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800'
@@ -261,7 +261,7 @@ export const Header: React.FC = () => {
             type="button"
             onClick={() => handleNav('/buscar')}
             aria-label="Buscar en la revista"
-            className="p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
+            className="p-1.5 sm:p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
           >
             <Search className="w-4 h-4" />
           </button>
@@ -270,7 +270,7 @@ export const Header: React.FC = () => {
             type="button"
             onClick={toggleDark}
             aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-            className="p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
+            className="p-1.5 sm:p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
           >
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -333,7 +333,7 @@ export const Header: React.FC = () => {
             type="button"
             onClick={() => setMobileMenuOpen((v) => !v)}
             aria-label={mobileMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
-            className="lg:hidden p-2 rounded-full text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 cursor-pointer"
+            className="lg:hidden p-1.5 sm:p-2 rounded-full text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 cursor-pointer"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>

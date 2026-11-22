@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bookmark, Camera, FileSpreadsheet, FileText, Headphones, Play } from 'lucide-react';
+import { Bookmark, Camera, FileSpreadsheet, FileText, Headphones, Pin, Play } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
 import { formatDateEs, getEditorialKindLabel } from '../lib/utils';
@@ -88,6 +88,12 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
               <span aria-hidden="true">·</span>
               <span>{formatLabel}</span>
             </>
+          )}
+          {post.pinnedInFeed && (
+            <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400">
+              <Pin className="w-3 h-3" aria-hidden="true" />
+              <span>Fijada</span>
+            </span>
           )}
         </div>
         <h3 className="mt-1.5 font-display text-xl font-bold leading-tight headline-balance">
@@ -199,6 +205,12 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
           <div className="absolute bottom-3 left-3 z-10 rounded-full bg-[#111111]/90 text-white px-3 py-1 flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider">
             <FormatIcon className="w-3.5 h-3.5 text-[var(--editorial-primary)]" aria-hidden="true" />
             <span>{formatLabel}</span>
+          </div>
+        )}
+        {post.pinnedInFeed && (
+          <div className="absolute top-3 left-3 z-10 rounded-full bg-[#111111]/90 text-amber-300 px-2.5 py-1 flex items-center gap-1 text-[10px] font-display font-bold uppercase tracking-wider">
+            <Pin className="w-3 h-3" aria-hidden="true" />
+            <span>Nota fijada</span>
           </div>
         )}
       </a>

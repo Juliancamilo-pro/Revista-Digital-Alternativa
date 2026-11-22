@@ -1,42 +1,61 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { doc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { deleteField, doc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import {
   ArrowDown,
   ArrowUp,
+  BookMarked,
+  Captions,
+  CopyPlus,
   Crosshair,
   Eye,
   FileText,
+  History,
   Image as ImageIcon,
+  Layers,
   ListChecks,
+  Monitor,
   Plus,
+  RotateCcw,
   Save,
   Send,
   ShieldAlert,
+  Smartphone,
+  Sparkles,
+  Tablet,
   Trash2,
   Upload,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
+import { buildApaReferenceString } from '../lib/apa';
 import { db } from '../lib/firebase';
 import {
   encodeMediaUrlWithMeta,
   estimateReadTime,
+  formatSecondsToTimestamp,
   generateId,
   parseMediaUrlMeta,
   sanitizeExternalUrl,
   slugify,
+  stripUndefinedDeep,
   toDate,
   uploadDocumentAsset,
   uploadMediaAsset,
+  uploadSubtitleAsset,
 } from '../lib/utils';
 import {
   AdminIdentityId,
+  ApaReference,
   ContentBlock,
   ContentBlockType,
   CorrectionEntry,
+  CoverLayoutStyle,
   EditorialKind,
   GalleryItem,
+  HeaderStyleVariant,
+  MediaChapter,
   Post,
+  PostRevision,
   PostStatus,
   PostType,
   SourceReference,
@@ -50,11 +69,94 @@ interface BlockEditorProps {
   onCancel: () => void;
 }
 
+type GenreTemplateKey = 'entrevista' | 'explicativo' | 'cronica' | 'datos' | 'opinion';
+
+function buildGenreTemplate(templateKey: GenreTemplateKey): {
+  editorialKind: EditorialKind;
+  blocks: ContentBlock[];
+} {
+  switch (templateKey) {
+    case 'entrevista':
+      return {
+        editorialKind: 'entrevista',
+        blocks: [
+          { id: generateId('blk'), type: 'paragraph', text: 'Presentación de la persona entrevistada y contexto editorial de la conversación.' },
+          { id: generateId('blk'), type: 'heading', level: 2, text: 'Primera pregunta o eje temático' },
+          { id: generateId('blk'), type: 'paragraph', text: 'Transcripción de la respuesta...' },
+          { id: generateId('blk'), type: 'speaker_quote', text: 'Frase central de la entrevista...', author: 'Nombre de la persona entrevistada', speakerRole: 'Cargo o actividad' },
+          { id: generateId('blk'), type: 'heading', level: 2, text: 'Segunda pregunta o cierre' },
+          { id: generateId('blk'), type: 'paragraph', text: 'Desarrollo y respuesta final...' },
+        ],
+      };
+    case 'explicativo':
+      return {
+        editorialKind: 'explicativo',
+        blocks: [
+          { id: generateId('blk'), type: 'context_box', calloutTitle: 'Qué está pasando y por qué importa', text: 'Síntesis rápida del hecho o normativa analizada.' },
+          { id: generateId('blk'), type: 'heading', level: 2, text: '1. Qué pasó y cuáles son los antecedentes' },
+          { id: generateId('blk'), type: 'paragraph', text: 'Desarrollo cronológico claro para lectores que llegan por primera vez al tema.' },
+          { id: generateId('blk'), type: 'metrics', text: 'Cifras clave', metricItems: [{ value: '0%', label: 'Indicador principal', detail: 'Fuente verificable' }] },
+          { id: generateId('blk'), type: 'heading', level: 2, text: '2. Qué ocurre a partir de ahora' },
+          { id: generateId('blk'), type: 'list', listStyle: 'ordered', listItems: ['Primer escenario o paso institucional', 'Segundo escenario'] },
+        ],
+      };
+    case 'cronica':
+      return {
+        editorialKind: 'cronica',
+        blocks: [
+          { id: generateId('blk'), type: 'paragraph', text: 'Escena de apertura que sitúa lugar, tiempo y protagonistas reales de la crónica.' },
+          { id: generateId('blk'), type: 'quote', text: 'Testimonio recogido en terreno.', author: 'Testimonio' },
+          { id: generateId('blk'), type: 'heading', level: 2, text: 'Desarrollo en terreno' },
+          { id: generateId('blk'), type: 'paragraph', text: 'Relato narrativo con observaciones directas y contexto social.' },
+          { id: generateId('blk'), type: 'divider', dividerVariant: 'asterisks' },
+          { id: generateId('blk'), type: 'heading', level: 2, text: 'Cierre y perspectivas' },
+          { id: generateId('blk'), type: 'paragraph', text: 'Conclusión narrativa de la cobertura.' },
+        ],
+      };
+    case 'datos':
+      return {
+        editorialKind: 'datos',
+        blocks: [
+          { id: generateId('blk'), type: 'context_box', calloutTitle: 'Metodología y fuentes de datos', text: 'Explicación transparente del conjunto de datos, periodo cubierto y limitaciones.' },
+          { id: generateId('blk'), type: 'metrics', text: 'Hallazgos cuantitativos', metricItems: [{ value: '0', label: 'Registros analizados', detail: 'Periodo de estudio' }, { value: '0%', label: 'Variación detectada', detail: 'Comparativo oficial' }] },
+          { id: generateId('blk'), type: 'heading', level: 2, text: 'Análisis de la base de datos' },
+          { id: generateId('blk'), type: 'table', text: 'Tabla comparativa', tableCaption: 'Resumen de datos verificados.', tableHeaders: ['Variable', 'Valor', 'Fuente'], tableRows: [['Registro 1', 'Dato', 'Entidad']] },
+          { id: generateId('blk'), type: 'paragraph', text: 'Interpretación periodística de los datos y contraste con fuentes consultadas.' },
+        ],
+      };
+    case 'opinion':
+    default:
+      return {
+        editorialKind: 'opinion',
+        blocks: [
+          { id: generateId('blk'), type: 'paragraph', text: 'Planteamiento de la tesis central de la columna y su relevancia pública.' },
+          { id: generateId('blk'), type: 'paragraph', text: 'Primer argumento sustentado en hechos verificables y contexto histórico.' },
+          { id: generateId('blk'), type: 'quote', text: 'Idea fuerza o cita de contraste.' },
+          { id: generateId('blk'), type: 'paragraph', text: 'Conclusión crítica y llamado a la reflexión colectiva.' },
+        ],
+      };
+  }
+}
+
+function parseTimestampToSec(raw: string): number {
+  const clean = raw.trim();
+  if (!clean) return 0;
+  if (/^\d+$/.test(clean)) return Math.max(0, Number(clean));
+  const parts = clean.split(':').map((p) => Number(p));
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return 0;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+
 export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, onCancel }) => {
   const { firebaseUser, userAccount, collaboratorProfile, isAdmin } = useAuth();
   const { siteConfig, categories, seriesList, publishedPosts, adminIdentities } = useSite();
 
-  const draftStorageKey = `revista_draft_${initialPost?.id || 'new'}`;
+  const [detachedAsCopy, setDetachedAsCopy] = useState(false);
+  const effectiveInitialPost = detachedAsCopy ? null : initialPost;
+  const draftStorageKey = `revista_draft_${effectiveInitialPost?.id || 'new'}`;
+  const revisionsStorageKey = `revista_revisions_${effectiveInitialPost?.id || 'new'}`;
 
   const [title, setTitle] = useState(initialPost?.title || '');
   const [subtitle, setSubtitle] = useState(initialPost?.subtitle || '');
@@ -75,11 +177,41 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     return 'owner';
   });
 
+  // Presentation & layout controls
+  const [coverLayout, setCoverLayout] = useState<CoverLayoutStyle>(initialPost?.coverLayout || 'full');
+  const [headerStyle, setHeaderStyle] = useState<HeaderStyleVariant>(initialPost?.headerStyle || 'classic');
+  const [useCustomAccent, setUseCustomAccent] = useState(Boolean(initialPost?.accentColor));
+  const [accentColor, setAccentColor] = useState(initialPost?.accentColor || siteConfig.primaryColor || '#B91C1C');
+  const [paragraphIndent, setParagraphIndent] = useState(Boolean(initialPost?.paragraphIndent));
+  const [pinnedInFeed, setPinnedInFeed] = useState(Boolean(initialPost?.pinnedInFeed));
+
+  // Academic APA 7 mode & Table of Contents
+  const [apaMode, setApaMode] = useState(Boolean(initialPost?.apaMode));
+  const [showTableOfContents, setShowTableOfContents] = useState(Boolean(initialPost?.showTableOfContents));
+  const [apaReferences, setApaReferences] = useState<ApaReference[]>(initialPost?.apaReferences || []);
+
   const [coverImage, setCoverImage] = useState(initialPost?.coverImage || '');
   const [coverAlt, setCoverAlt] = useState(initialPost?.coverAlt || '');
   const [coverCredit, setCoverCredit] = useState(initialPost?.coverCredit || '');
   const [mediaUrl, setMediaUrl] = useState(initialPost?.mediaUrl || '');
   const [documentTitle, setDocumentTitle] = useState(initialPost?.documentTitle || '');
+
+  // Enhanced audio/video fields
+  const [mediaDurationLabel, setMediaDurationLabel] = useState(initialPost?.mediaDurationLabel || '');
+  const [mediaSubtitlesUrl, setMediaSubtitlesUrl] = useState(initialPost?.mediaSubtitlesUrl || '');
+  const [mediaTranscript, setMediaTranscript] = useState(initialPost?.mediaTranscript || '');
+  const [episodeNotes, setEpisodeNotes] = useState(initialPost?.episodeNotes || '');
+  const [seasonNumber, setSeasonNumber] = useState<string>(
+    initialPost?.seasonNumber ? String(initialPost.seasonNumber) : ''
+  );
+  const [episodeNumber, setEpisodeNumber] = useState<string>(
+    initialPost?.episodeNumber ? String(initialPost.episodeNumber) : ''
+  );
+  const [mediaChapters, setMediaChapters] = useState<MediaChapter[]>(initialPost?.mediaChapters || []);
+  const [mediaRelatedLinks, setMediaRelatedLinks] = useState<SourceReference[]>(
+    initialPost?.mediaRelatedLinks || []
+  );
+
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>(initialPost?.galleryItems || []);
   const [corrections, setCorrections] = useState<CorrectionEntry[]>(initialPost?.corrections || []);
   const [keyPoints, setKeyPoints] = useState<string[]>(initialPost?.keyPoints || []);
@@ -104,10 +236,23 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
   });
 
   const [showPreview, setShowPreview] = useState(false);
+  const [previewViewport, setPreviewViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [selectedTemplate, setSelectedTemplate] = useState<'' | GenreTemplateKey>('');
+  const [revisionsOpen, setRevisionsOpen] = useState(false);
+  const [revisions, setRevisions] = useState<PostRevision[]>(() => {
+    try {
+      const raw = localStorage.getItem(`revista_revisions_${initialPost?.id || 'new'}`);
+      return raw ? (JSON.parse(raw) as PostRevision[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [uploadingInfo, setUploadingInfo] = useState('');
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [autoSavedAt, setAutoSavedAt] = useState<string>('');
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
   // Sync categoryId if categories load after mount and current selection is missing
@@ -119,7 +264,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
 
   // Restore unsaved local draft for new posts
   useEffect(() => {
-    if (initialPost) return;
+    if (effectiveInitialPost) return;
     try {
       const saved = localStorage.getItem(draftStorageKey);
       if (saved) {
@@ -132,17 +277,19 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
         if (Array.isArray(parsed.tags)) setTags(parsed.tags);
         if (Array.isArray(parsed.keyPoints)) setKeyPoints(parsed.keyPoints);
         if (Array.isArray(parsed.sources)) setSources(parsed.sources);
+        if (Array.isArray(parsed.apaReferences)) setApaReferences(parsed.apaReferences);
         if (typeof parsed.seoDescription === 'string') setSeoDescription(parsed.seoDescription);
         if (typeof parsed.sensitiveContent === 'boolean') setSensitiveContent(parsed.sensitiveContent);
         if (typeof parsed.sensitiveWarning === 'string') setSensitiveWarning(parsed.sensitiveWarning);
         if (typeof parsed.coverImage === 'string') setCoverImage(parsed.coverImage);
         if (typeof parsed.mediaUrl === 'string') setMediaUrl(parsed.mediaUrl);
         if (typeof parsed.documentTitle === 'string') setDocumentTitle(parsed.documentTitle);
+        if (typeof parsed.apaMode === 'boolean') setApaMode(parsed.apaMode);
       }
     } catch {
       // ignore
     }
-  }, [initialPost, draftStorageKey]);
+  }, [effectiveInitialPost, draftStorageKey]);
 
   // Automatic local draft saving
   useEffect(() => {
@@ -160,6 +307,8 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
             tags,
             keyPoints,
             sources,
+            apaReferences,
+            apaMode,
             seoDescription,
             sensitiveContent,
             sensitiveWarning,
@@ -183,6 +332,8 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     tags,
     keyPoints,
     sources,
+    apaReferences,
+    apaMode,
     seoDescription,
     sensitiveContent,
     sensitiveWarning,
@@ -191,6 +342,55 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     documentTitle,
     draftStorageKey,
   ]);
+
+  const saveRevisionSnapshot = (label: string) => {
+    if (!title.trim() && blocks.every((b) => !b.text?.trim())) return;
+    const rev: PostRevision = {
+      id: generateId('rev'),
+      savedAt: new Date().toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }),
+      label,
+      title: title || 'Sin título',
+      subtitle,
+      blocks,
+    };
+    setRevisions((prev) => {
+      const next = [rev, ...prev].slice(0, 15);
+      try {
+        localStorage.setItem(revisionsStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      return next;
+    });
+  };
+
+  // Automatic version snapshot every 3 minutes while actively editing
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveRevisionSnapshot('Respaldo automático');
+    }, 180000);
+    return () => clearInterval(interval);
+  });
+
+  const handleDuplicateInEditor = () => {
+    saveRevisionSnapshot('Antes de duplicar');
+    setDetachedAsCopy(true);
+    setFeatured(false);
+    setBreaking(false);
+    setPinnedInFeed(false);
+    setScheduledForInput('');
+    setTitle((prev) => (prev.endsWith('(Copia)') ? prev : `${prev || 'Borrador'} (Copia)`));
+    setNotice('Se creó una copia independiente en el editor. Al guardar se creará una nueva publicación.');
+  };
+
+  const handleApplyTemplate = (tpl: GenreTemplateKey) => {
+    const built = buildGenreTemplate(tpl);
+    saveRevisionSnapshot('Antes de aplicar plantilla');
+    setEditorialKind(built.editorialKind);
+    setBlocks(built.blocks);
+    setSelectedTemplate('');
+    setNotice('Plantilla estructural cargada. Reemplaza las indicaciones por tu contenido periodístico.');
+  };
 
   const allKnownTags = useMemo(() => {
     const s = new Set<string>();
@@ -215,7 +415,13 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
 
   const handleUploadAsset = async (
     file: File,
-    target: 'cover' | 'media' | 'gallery' | string
+    target:
+      | 'cover'
+      | 'media'
+      | 'gallery'
+      | { blockId: string; field: 'imageUrl' | 'beforeImageUrl' | 'afterImageUrl' }
+      | { blockId: string; carouselAdd?: boolean }
+      | string
   ) => {
     setError('');
     setUploadProgress(5);
@@ -240,12 +446,51 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
           ...prev,
           { id: generateId('gal'), url: res.url, alt: file.name, caption: '', credit: '' },
         ]);
+      } else if (typeof target === 'object') {
+        if ('carouselAdd' in target && target.carouselAdd) {
+          setBlocks((prev) =>
+            prev.map((b) =>
+              b.id === target.blockId
+                ? {
+                    ...b,
+                    carouselItems: [
+                      ...(b.carouselItems || []),
+                      { id: generateId('car'), url: res.url, alt: file.name, caption: '', credit: '' },
+                    ],
+                  }
+                : b
+            )
+          );
+        } else if ('field' in target) {
+          setBlocks((prev) =>
+            prev.map((b) => (b.id === target.blockId ? { ...b, [target.field]: res.url } : b))
+          );
+        }
       } else {
         setBlocks((prev) => prev.map((b) => (b.id === target ? { ...b, imageUrl: res.url } : b)));
       }
       setUploadingInfo(res.info);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al subir archivo.');
+      setUploadingInfo('');
+    } finally {
+      setTimeout(() => setUploadProgress(null), 800);
+    }
+  };
+
+  const handleUploadSubtitleFile = async (file: File) => {
+    if (!firebaseUser) return;
+    setError('');
+    setUploadProgress(10);
+    setUploadingInfo('Subiendo archivo de subtítulos (.vtt)...');
+    try {
+      const res = await uploadSubtitleAsset(file, `subtitles/${firebaseUser.uid}`, (pct) =>
+        setUploadProgress(pct)
+      );
+      setMediaSubtitlesUrl(res.url);
+      setUploadingInfo(`Subtítulos cargados: ${res.fileName}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudieron subir los subtítulos.');
       setUploadingInfo('');
     } finally {
       setTimeout(() => setUploadProgress(null), 800);
@@ -324,13 +569,31 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       ...(bType === 'heading' ? { level: 2 as const } : {}),
       ...(bType === 'footnote' ? { footnoteNumber: nextNum } : {}),
       ...(bType === 'callout' ? { calloutTone: 'info' as const, calloutTitle: '' } : {}),
+      ...(bType === 'context_box' ? { calloutTitle: 'Contexto clave', text: '' } : {}),
       ...(bType === 'list' ? { listStyle: 'unordered' as const, listItems: ['Primer punto'] } : {}),
       ...(bType === 'document' ? { documentUrl: '', documentTitle: '', documentDescription: '' } : {}),
+      ...(bType === 'divider' ? { dividerVariant: 'line' as const } : {}),
+      ...(bType === 'columns'
+        ? {
+            columns: [
+              { title: 'Columna 1', body: '' },
+              { title: 'Columna 2', body: '' },
+            ],
+          }
+        : {}),
+      ...(bType === 'before_after'
+        ? { beforeImageUrl: '', afterImageUrl: '', beforeLabel: 'Antes', afterLabel: 'Después' }
+        : {}),
+      ...(bType === 'metrics'
+        ? { metricItems: [{ value: '', label: 'Indicador', detail: '' }] }
+        : {}),
+      ...(bType === 'speaker_quote' ? { text: '', author: '', speakerRole: '', imageUrl: '' } : {}),
+      ...(bType === 'carousel' ? { carouselItems: [] } : {}),
       ...(bType === 'timeline'
         ? { timelineEntries: [{ date: '2026', title: 'Hito', detail: '' }] }
         : {}),
       ...(bType === 'table'
-        ? { tableHeaders: ['Columna 1', 'Columna 2'], tableRows: [['Dato 1', 'Dato 2']] }
+        ? { tableHeaders: ['Columna 1', 'Columna 2'], tableRows: [['Dato 1', 'Dato 2']], tableCaption: '' }
         : {}),
     };
     setBlocks((prev) => [...prev, base]);
@@ -357,6 +620,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
 
   const handleSave = async (requestedStatus: PostStatus) => {
     setError('');
+    setNotice('');
     if (!firebaseUser) {
       setError('Debes iniciar sesión para guardar.');
       return;
@@ -379,15 +643,14 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       }
     }
 
-    // Enforce optional review queue for collaborators if configured by admin
     let finalStatus: PostStatus = requestedStatus;
     if (!isAdmin && requestedStatus === 'published' && !siteConfig.autoPublishCollaborators) {
       finalStatus = 'in_review';
     }
 
     const ser = seriesList.find((s) => s.id === seriesId);
-    const id = initialPost?.id || generateId('post');
-    const slug = initialPost?.slug || `${slugify(title)}-${id.slice(-4)}`;
+    const id = effectiveInitialPost?.id || generateId('post');
+    const slug = effectiveInitialPost?.slug || `${slugify(title)}-${id.slice(-4)}`;
     const readTime = estimateReadTime(blocks, subtitle);
     const cleanTags = tags.length > 0 ? tags : [cat.slug];
 
@@ -411,7 +674,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       authorIdentityType = 'collaborator';
       const candidate = (
         collaboratorProfile?.name ||
-        initialPost?.authorName ||
+        effectiveInitialPost?.authorName ||
         userAccount?.displayName ||
         firebaseUser.displayName ||
         'Colaborador'
@@ -423,7 +686,8 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
         collaboratorProfile?.showAvatar === true && collaboratorProfile.avatarUrl
           ? collaboratorProfile.avatarUrl.slice(0, 400000)
           : '';
-      safeAuthorOutlet = collaboratorProfile?.outletType || initialPost?.authorOutletType || 'independiente';
+      safeAuthorOutlet =
+        collaboratorProfile?.outletType || effectiveInitialPost?.authorOutletType || 'independiente';
     }
 
     const cleanedKeyPoints = keyPoints.map((k) => k.trim().slice(0, 260)).filter(Boolean).slice(0, 10);
@@ -437,24 +701,175 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
           ...(cleanUrl ? { url: cleanUrl.slice(0, 500) } : {}),
         };
       });
+    const cleanedMediaRelatedLinks = mediaRelatedLinks
+      .filter((s) => s.label.trim().length > 0)
+      .slice(0, 20)
+      .map((s) => {
+        const cleanUrl = sanitizeExternalUrl(s.url || '');
+        return {
+          label: s.label.trim().slice(0, 220),
+          ...(cleanUrl ? { url: cleanUrl.slice(0, 500) } : {}),
+        };
+      });
+    const cleanedApaRefs = apaReferences
+      .filter((r) => r.author.trim() || r.title.trim())
+      .slice(0, 60)
+      .map((r) => ({
+        id: r.id,
+        author: r.author.trim().slice(0, 220),
+        year: r.year.trim().slice(0, 20),
+        title: r.title.trim().slice(0, 300),
+        publisher: r.publisher.trim().slice(0, 200),
+        ...(sanitizeExternalUrl(r.url || '') ? { url: sanitizeExternalUrl(r.url || '').slice(0, 500) } : {}),
+        ...(r.accessDate?.trim() ? { accessDate: r.accessDate.trim().slice(0, 60) } : {}),
+        formatted: buildApaReferenceString(r).slice(0, 900),
+      }));
+    const cleanedChapters = mediaChapters
+      .filter((c) => c.label.trim().length > 0)
+      .slice(0, 50)
+      .map((c) => ({
+        id: c.id,
+        timeSec: Math.max(0, Math.floor(Number(c.timeSec) || 0)),
+        label: c.label.trim().slice(0, 140),
+        ...(c.description?.trim() ? { description: c.description.trim().slice(0, 300) } : {}),
+      }))
+      .sort((a, b) => a.timeSec - b.timeSec);
 
-    const payload: Record<string, unknown> = {
-      id,
+    const parsedSeason = Number(seasonNumber);
+    const parsedEpisode = Number(episodeNumber);
+    const cleanSubtitleUrl = sanitizeExternalUrl(mediaSubtitlesUrl || '');
+
+    const cleanBlocks = stripUndefinedDeep(blocks.slice(0, 80));
+    const cleanGalleryItems = stripUndefinedDeep(galleryItems.slice(0, 30));
+    const cleanCorrections = corrections
+      .filter((c) => c.note.trim())
+      .slice(0, 30)
+      .map((c) => ({
+        date: c.date.trim() || new Date().toLocaleDateString('es-ES'),
+        note: c.note.trim(),
+        editorName: c.editorName.trim() || userAccount?.displayName || 'Redacción',
+      }));
+    const validAccentColor =
+      useCustomAccent && /^#[0-9a-fA-F]{3,8}$/.test(accentColor.trim())
+        ? accentColor.trim().slice(0, 20)
+        : '';
+    const validMediaSourceType =
+      type === 'video' || type === 'audio' || type === 'document' ? type : '';
+    const validSeason =
+      Number.isInteger(parsedSeason) && parsedSeason >= 1 && parsedSeason <= 999 ? parsedSeason : undefined;
+    const validEpisode =
+      Number.isInteger(parsedEpisode) && parsedEpisode >= 1 && parsedEpisode <= 9999 ? parsedEpisode : undefined;
+    const validDocumentTitle =
+      type === 'document' && documentTitle.trim() ? documentTitle.trim().slice(0, 200) : '';
+    const validSensitiveWarning =
+      sensitiveContent && sensitiveWarning.trim() ? sensitiveWarning.trim().slice(0, 300) : '';
+
+    const sharedEditableFields: Record<string, unknown> = {
       title: title.trim().slice(0, 220),
       slug: slug.slice(0, 240),
       subtitle: subtitle.trim().slice(0, 500),
       type,
       editorialKind,
       status: finalStatus,
-      featured: isAdmin ? featured : initialPost?.featured || false,
-      breaking: isAdmin ? breaking : initialPost?.breaking || false,
-      isSample: false,
       categoryId: cat.id,
       categoryName: cat.name.slice(0, 80),
       categorySlug: cat.slug.slice(0, 100),
+      tags: cleanTags.slice(0, 12),
+      authorProfileId,
+      authorIdentityType,
+      authorVerified: true,
+      authorName: safeAuthorName,
+      authorOutletType: safeAuthorOutlet,
+      coverLayout,
+      headerStyle,
+      paragraphIndent: Boolean(paragraphIndent),
+      apaMode: Boolean(apaMode),
+      showTableOfContents: Boolean(showTableOfContents),
+      blocks: cleanBlocks,
+      sensitiveContent: Boolean(sensitiveContent),
+      commentsEnabled,
+      readTimeMinutes: Math.min(180, readTime),
+      updatedAt: serverTimestamp(),
+    };
+
+    const setOrClearOptional = (
+      target: Record<string, unknown>,
+      key: string,
+      value: unknown,
+      isEdit: boolean
+    ) => {
+      const hasValue =
+        value !== undefined &&
+        value !== null &&
+        value !== '' &&
+        (!Array.isArray(value) || value.length > 0);
+      if (hasValue) {
+        target[key] = value;
+      } else if (isEdit) {
+        target[key] = deleteField();
+      }
+    };
+
+    const applyOptionals = (target: Record<string, unknown>, isEdit: boolean) => {
+      setOrClearOptional(target, 'seriesId', ser ? ser.id : '', isEdit);
+      setOrClearOptional(target, 'seriesTitle', ser ? ser.title.slice(0, 160) : '', isEdit);
+      setOrClearOptional(target, 'authorAvatar', safeAuthorAvatar, isEdit);
+      setOrClearOptional(target, 'coverImage', coverImage ? coverImage.slice(0, 400000) : '', isEdit);
+      setOrClearOptional(target, 'coverAlt', coverAlt ? coverAlt.slice(0, 300) : '', isEdit);
+      setOrClearOptional(target, 'coverCredit', coverCredit ? coverCredit.slice(0, 200) : '', isEdit);
+      setOrClearOptional(target, 'accentColor', validAccentColor, isEdit);
+      setOrClearOptional(target, 'apaReferences', cleanedApaRefs.length > 0 ? stripUndefinedDeep(cleanedApaRefs) : [], isEdit);
+      setOrClearOptional(target, 'galleryItems', cleanGalleryItems, isEdit);
+      setOrClearOptional(target, 'corrections', cleanCorrections, isEdit);
+      setOrClearOptional(target, 'keyPoints', cleanedKeyPoints, isEdit);
+      setOrClearOptional(target, 'sensitiveWarning', validSensitiveWarning, isEdit);
+      setOrClearOptional(target, 'sources', cleanedSources.length > 0 ? stripUndefinedDeep(cleanedSources) : [], isEdit);
+      setOrClearOptional(target, 'seoDescription', seoDescription.trim() ? seoDescription.trim().slice(0, 320) : '', isEdit);
+      setOrClearOptional(target, 'mediaUrl', mediaUrl ? mediaUrl.slice(0, 400000) : '', isEdit);
+      setOrClearOptional(target, 'mediaSourceType', validMediaSourceType, isEdit);
+      setOrClearOptional(target, 'mediaChapters', cleanedChapters.length > 0 ? stripUndefinedDeep(cleanedChapters) : [], isEdit);
+      setOrClearOptional(target, 'mediaTranscript', mediaTranscript.trim() ? mediaTranscript.trim().slice(0, 40000) : '', isEdit);
+      setOrClearOptional(target, 'mediaSubtitlesUrl', cleanSubtitleUrl ? cleanSubtitleUrl.slice(0, 1000) : '', isEdit);
+      setOrClearOptional(target, 'mediaDurationLabel', mediaDurationLabel.trim() ? mediaDurationLabel.trim().slice(0, 40) : '', isEdit);
+      setOrClearOptional(
+        target,
+        'mediaRelatedLinks',
+        cleanedMediaRelatedLinks.length > 0 ? stripUndefinedDeep(cleanedMediaRelatedLinks) : [],
+        isEdit
+      );
+      setOrClearOptional(target, 'episodeNotes', episodeNotes.trim() ? episodeNotes.trim().slice(0, 10000) : '', isEdit);
+      setOrClearOptional(target, 'seasonNumber', validSeason, isEdit);
+      setOrClearOptional(target, 'episodeNumber', validEpisode, isEdit);
+      setOrClearOptional(target, 'documentTitle', validDocumentTitle, isEdit);
+
+      if (finalStatus === 'published') {
+        target.publishedAt = effectiveInitialPost?.publishedAt || serverTimestamp();
+      }
+      if (finalStatus === 'scheduled' && scheduledForInput) {
+        target.scheduledFor = new Date(scheduledForInput);
+      } else if (isEdit) {
+        target.scheduledFor = deleteField();
+      }
+    };
+
+    const localSavedPost: Post = {
+      id,
+      title: sharedEditableFields.title as string,
+      slug: sharedEditableFields.slug as string,
+      subtitle: sharedEditableFields.subtitle as string,
+      type,
+      editorialKind,
+      status: finalStatus,
+      featured: isAdmin ? featured : effectiveInitialPost?.featured || false,
+      breaking: isAdmin ? breaking : effectiveInitialPost?.breaking || false,
+      pinnedInFeed: isAdmin ? Boolean(pinnedInFeed) : effectiveInitialPost?.pinnedInFeed || false,
+      isSample: false,
+      categoryId: cat.id,
+      categoryName: sharedEditableFields.categoryName as string,
+      categorySlug: sharedEditableFields.categorySlug as string,
       ...(ser ? { seriesId: ser.id, seriesTitle: ser.title.slice(0, 160) } : {}),
       tags: cleanTags.slice(0, 12),
-      authorId: initialPost?.authorId || firebaseUser.uid,
+      authorId: effectiveInitialPost?.authorId || firebaseUser.uid,
       authorProfileId,
       authorIdentityType,
       authorVerified: true,
@@ -464,60 +879,100 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       ...(coverImage ? { coverImage: coverImage.slice(0, 400000) } : {}),
       ...(coverAlt ? { coverAlt: coverAlt.slice(0, 300) } : {}),
       ...(coverCredit ? { coverCredit: coverCredit.slice(0, 200) } : {}),
-      blocks: blocks.slice(0, 80),
-      ...(galleryItems.length > 0 ? { galleryItems: galleryItems.slice(0, 30) } : {}),
-      ...(corrections.filter((c) => c.note.trim()).length > 0
-        ? {
-            corrections: corrections
-              .filter((c) => c.note.trim())
-              .slice(0, 30)
-              .map((c) => ({
-                date: c.date.trim() || new Date().toLocaleDateString('es-ES'),
-                note: c.note.trim(),
-                editorName: c.editorName.trim() || userAccount?.displayName || 'Redacción',
-              })),
-          }
-        : {}),
+      coverLayout,
+      headerStyle,
+      ...(validAccentColor ? { accentColor: validAccentColor } : {}),
+      paragraphIndent: Boolean(paragraphIndent),
+      apaMode: Boolean(apaMode),
+      showTableOfContents: Boolean(showTableOfContents),
+      ...(cleanedApaRefs.length > 0 ? { apaReferences: cleanedApaRefs } : {}),
+      blocks: cleanBlocks,
+      ...(cleanGalleryItems.length > 0 ? { galleryItems: cleanGalleryItems } : {}),
+      ...(cleanCorrections.length > 0 ? { corrections: cleanCorrections } : {}),
       ...(cleanedKeyPoints.length > 0 ? { keyPoints: cleanedKeyPoints } : {}),
       sensitiveContent: Boolean(sensitiveContent),
-      ...(sensitiveContent && sensitiveWarning.trim()
-        ? { sensitiveWarning: sensitiveWarning.trim().slice(0, 300) }
-        : {}),
+      ...(validSensitiveWarning ? { sensitiveWarning: validSensitiveWarning } : {}),
       ...(cleanedSources.length > 0 ? { sources: cleanedSources } : {}),
       ...(seoDescription.trim() ? { seoDescription: seoDescription.trim().slice(0, 320) } : {}),
       commentsEnabled,
       ...(mediaUrl ? { mediaUrl: mediaUrl.slice(0, 400000) } : {}),
-      ...(type === 'video' || type === 'audio' || type === 'document' ? { mediaSourceType: type } : {}),
-      ...(type === 'document' && documentTitle.trim() ? { documentTitle: documentTitle.trim().slice(0, 200) } : {}),
-      readTimeMinutes: readTime,
-      viewCount: initialPost?.viewCount ?? 0,
-      commentCount: initialPost?.commentCount ?? 0,
-      ...(finalStatus === 'published' ? { publishedAt: initialPost?.publishedAt || serverTimestamp() } : {}),
+      ...(validMediaSourceType ? { mediaSourceType: validMediaSourceType } : {}),
+      ...(cleanedChapters.length > 0 ? { mediaChapters: cleanedChapters } : {}),
+      ...(mediaTranscript.trim() ? { mediaTranscript: mediaTranscript.trim().slice(0, 40000) } : {}),
+      ...(cleanSubtitleUrl ? { mediaSubtitlesUrl: cleanSubtitleUrl.slice(0, 1000) } : {}),
+      ...(mediaDurationLabel.trim() ? { mediaDurationLabel: mediaDurationLabel.trim().slice(0, 40) } : {}),
+      ...(cleanedMediaRelatedLinks.length > 0 ? { mediaRelatedLinks: cleanedMediaRelatedLinks } : {}),
+      ...(episodeNotes.trim() ? { episodeNotes: episodeNotes.trim().slice(0, 10000) } : {}),
+      ...(validSeason !== undefined ? { seasonNumber: validSeason } : {}),
+      ...(validEpisode !== undefined ? { episodeNumber: validEpisode } : {}),
+      ...(validDocumentTitle ? { documentTitle: validDocumentTitle } : {}),
+      readTimeMinutes: Math.min(180, readTime),
+      viewCount: effectiveInitialPost?.viewCount ?? 0,
+      commentCount: effectiveInitialPost?.commentCount ?? 0,
+      ...(finalStatus === 'published'
+        ? { publishedAt: effectiveInitialPost?.publishedAt || new Date() }
+        : {}),
       ...(finalStatus === 'scheduled' && scheduledForInput
         ? { scheduledFor: new Date(scheduledForInput) }
         : {}),
-      createdAt: initialPost?.createdAt || serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      createdAt: effectiveInitialPost?.createdAt || new Date(),
+      updatedAt: new Date(),
     };
 
     setSaving(true);
     try {
-      await setDoc(doc(db, 'posts', id), payload, { merge: false });
-      if (!initialPost && collaboratorProfile && !isAdmin) {
-        await updateDoc(doc(db, 'collaborators_public', firebaseUser.uid), {
-          postCount: increment(1),
-          updatedAt: serverTimestamp(),
-        }).catch(() => undefined);
+      saveRevisionSnapshot(`Guardado (${finalStatus})`);
+      if (effectiveInitialPost) {
+        const updatePayload: Record<string, unknown> = {
+          ...sharedEditableFields,
+          ...(isAdmin
+            ? {
+                featured,
+                breaking,
+                pinnedInFeed: Boolean(pinnedInFeed),
+              }
+            : {}),
+        };
+        applyOptionals(updatePayload, true);
+        await updateDoc(doc(db, 'posts', id), updatePayload);
+      } else {
+        const createPayload: Record<string, unknown> = {
+          ...sharedEditableFields,
+          id,
+          featured: isAdmin ? featured : false,
+          breaking: isAdmin ? breaking : false,
+          pinnedInFeed: isAdmin ? Boolean(pinnedInFeed) : false,
+          isSample: false,
+          authorId: firebaseUser.uid,
+          viewCount: 0,
+          commentCount: 0,
+          createdAt: serverTimestamp(),
+        };
+        applyOptionals(createPayload, false);
+        await setDoc(doc(db, 'posts', id), createPayload);
+        if (collaboratorProfile && !isAdmin) {
+          await updateDoc(doc(db, 'collaborators_public', firebaseUser.uid), {
+            postCount: increment(1),
+            updatedAt: serverTimestamp(),
+          }).catch(() => undefined);
+        }
       }
       localStorage.removeItem(draftStorageKey);
-      onSaved(payload as unknown as Post);
+      onSaved(localSavedPost);
     } catch (err) {
       console.error('Error guardando publicación:', err);
-      setError(
-        err instanceof Error && !err.message.startsWith('{')
-          ? err.message
-          : 'No se pudo guardar la publicación. Verifica los campos y tus permisos editoriales.'
-      );
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'permission-denied') {
+        setError(
+          'Permisos insuficientes en Firestore para guardar esta publicación. Verifica que tu cuenta esté activa y que las reglas de Firestore estén publicadas.'
+        );
+      } else {
+        setError(
+          err instanceof Error && !err.message.startsWith('{')
+            ? err.message
+            : 'No se pudo guardar la publicación. Verifica los campos y tus permisos editoriales.'
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -525,10 +980,11 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
 
   return (
     <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 sm:p-8 space-y-6">
+      {/* Header Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-300 dark:border-neutral-800 pb-4">
         <div>
           <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
-            {initialPost ? 'Editar publicación' : 'Nueva publicación multimedia'}
+            {effectiveInitialPost ? 'Editar publicación' : 'Nueva publicación multimedia'}
           </h2>
           <p className="text-xs text-neutral-500 mt-1">
             {autoSavedAt ? `Borrador guardado localmente a las ${autoSavedAt}` : 'Guardado automático de borrador activo'}
@@ -537,6 +993,22 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDuplicateInEditor}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 font-display text-xs font-bold uppercase tracking-wider cursor-pointer hover:border-[var(--editorial-primary)]"
+          >
+            <CopyPlus className="w-3.5 h-3.5" />
+            <span>Duplicar</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setRevisionsOpen((o) => !o)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 font-display text-xs font-bold uppercase tracking-wider cursor-pointer hover:border-[var(--editorial-primary)]"
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Historial ({revisions.length})</span>
+          </button>
           <button
             type="button"
             onClick={() => setShowPreview((p) => !p)}
@@ -555,6 +1027,54 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
         </div>
       </div>
 
+      {/* Revisions Drawer */}
+      {revisionsOpen && (
+        <div className="rounded-2xl border border-neutral-300 dark:border-neutral-700 bg-[#F8F6F1] dark:bg-[#191919] p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+              Historial local de versiones
+            </span>
+            <button
+              type="button"
+              onClick={() => saveRevisionSnapshot('Versión manual')}
+              className="px-3 py-1 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black font-display text-[11px] font-bold uppercase cursor-pointer"
+            >
+              + Guardar instantánea ahora
+            </button>
+          </div>
+          {revisions.length === 0 ? (
+            <p className="text-xs text-neutral-500">Aún no hay instantáneas guardadas en este navegador.</p>
+          ) : (
+            <ul className="divide-y divide-neutral-200 dark:divide-neutral-800 max-h-48 overflow-y-auto">
+              {revisions.map((rev) => (
+                <li key={rev.id} className="py-2 flex items-center justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{rev.title}</p>
+                    <p className="text-neutral-500">
+                      {rev.savedAt} · {rev.label} · {rev.blocks.length} bloques
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTitle(rev.title);
+                      setSubtitle(rev.subtitle);
+                      setBlocks(rev.blocks);
+                      setRevisionsOpen(false);
+                      setNotice(`Versión restaurada (${rev.savedAt}).`);
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-neutral-400 dark:border-neutral-600 font-display font-bold uppercase cursor-pointer shrink-0 hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Restaurar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {uploadProgress !== null && (
         <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-[#F8F6F1] dark:bg-[#1A1A1A] p-3 space-y-1.5">
           <div className="flex justify-between text-xs font-display font-bold uppercase">
@@ -567,6 +1087,12 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
+        </div>
+      )}
+
+      {notice && (
+        <div role="status" className="rounded-xl p-3 border border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200 text-xs">
+          {notice}
         </div>
       )}
 
@@ -628,6 +1154,38 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
               </div>
             </div>
           )}
+
+          {/* Genre Structural Template Loader */}
+          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[#F8F6F1]/50 dark:bg-[#181818] p-3.5 flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider">
+              <Sparkles className="w-3.5 h-3.5 text-[var(--editorial-primary)]" />
+              Plantilla por género editorial
+            </span>
+            <div className="flex items-center gap-2">
+              <select
+                aria-label="Seleccionar plantilla por género"
+                value={selectedTemplate}
+                onChange={(e) => setSelectedTemplate(e.target.value as '' | GenreTemplateKey)}
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#141414] border border-neutral-300 dark:border-neutral-700 text-xs"
+              >
+                <option value="">Elegir estructura...</option>
+                <option value="entrevista">Entrevista (P&R)</option>
+                <option value="explicativo">Artículo explicativo</option>
+                <option value="cronica">Crónica narrativa</option>
+                <option value="datos">Periodismo de datos</option>
+                <option value="opinion">Columna de opinión</option>
+              </select>
+              {selectedTemplate && (
+                <button
+                  type="button"
+                  onClick={() => handleApplyTemplate(selectedTemplate)}
+                  className="px-3 py-1.5 rounded-full bg-[var(--editorial-primary)] text-white font-display text-xs font-bold uppercase cursor-pointer"
+                >
+                  Cargar estructura
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* Format, Classification & Category */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -721,6 +1279,88 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
               placeholder="Resumen editorial que acompaña al titular y aparece al compartir en redes..."
               className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
             />
+          </div>
+
+          {/* Presentation & Academic Design Options */}
+          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 p-4 space-y-3 bg-[#F8F6F1]/40 dark:bg-[#171717]">
+            <p className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider">
+              <Layers className="w-3.5 h-3.5 text-[var(--editorial-primary)]" />
+              Presentación editorial y modo académico
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                  Diseño de portada
+                </label>
+                <select
+                  value={coverLayout}
+                  onChange={(e) => setCoverLayout(e.target.value as CoverLayoutStyle)}
+                  className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                >
+                  <option value="full">Completa (panorámica)</option>
+                  <option value="compact">Compacta lateral</option>
+                  <option value="overlay">Titular sobre imagen</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                  Estilo de encabezado
+                </label>
+                <select
+                  value={headerStyle}
+                  onChange={(e) => setHeaderStyle(e.target.value as HeaderStyleVariant)}
+                  className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                >
+                  <option value="classic">Clásico de prensa</option>
+                  <option value="editorial">Editorial destacado</option>
+                  <option value="minimal">Minimalista centrado</option>
+                </select>
+              </div>
+              <div>
+                <label className="inline-flex items-center gap-1.5 text-[11px] font-display font-bold uppercase text-neutral-500 mb-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useCustomAccent}
+                    onChange={(e) => setUseCustomAccent(e.target.checked)}
+                  />
+                  <span>Color de acento propio</span>
+                </label>
+                {useCustomAccent && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={accentColor}
+                      onChange={(e) => setAccentColor(e.target.value)}
+                      className="w-9 h-8 rounded border border-neutral-300 dark:border-neutral-700 cursor-pointer"
+                    />
+                    <span className="font-tabular text-xs">{accentColor}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-5 pt-1 text-xs">
+              <label className="inline-flex items-center gap-2 cursor-pointer font-semibold">
+                <input type="checkbox" checked={apaMode} onChange={(e) => setApaMode(e.target.checked)} />
+                <span>Modo académico / citas APA 7 (citas, figuras y bibliografía)</span>
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer font-semibold">
+                <input
+                  type="checkbox"
+                  checked={showTableOfContents}
+                  onChange={(e) => setShowTableOfContents(e.target.checked)}
+                />
+                <span>Tabla de contenidos automática</span>
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer font-semibold">
+                <input
+                  type="checkbox"
+                  checked={paragraphIndent}
+                  onChange={(e) => setParagraphIndent(e.target.checked)}
+                />
+                <span>Sangría en párrafos</span>
+              </label>
+            </div>
           </div>
 
           {/* Cover Image with optimization & Focal Point Picker */}
@@ -864,15 +1504,15 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
             </div>
           </div>
 
-          {/* Video / Audio / Document Main Media Field */}
+          {/* Video / Audio / Document Main Media Field + Enhanced Audio/Video Options */}
           {(type === 'video' || type === 'audio' || type === 'document') && (
             <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-display text-xs font-bold uppercase tracking-wider">
                   {type === 'video'
-                    ? 'Fuente de video (YouTube, Vimeo o archivo)'
+                    ? 'Fuente de video (YouTube, Vimeo o archivo MP4)'
                     : type === 'audio'
-                    ? 'Archivo o URL de audio / pódcast'
+                    ? 'Archivo o URL de audio / pódcast (MP3, Spotify, SoundCloud)'
                     : 'Documento / PDF descargable principal'}
                 </span>
                 <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-400 text-xs font-display font-bold uppercase cursor-pointer">
@@ -903,7 +1543,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                   maxLength={200}
                   value={documentTitle}
                   onChange={(e) => setDocumentTitle(e.target.value)}
-                  placeholder="Título del documento descargable (ej. Informe completo de contratación pública 2026)"
+                  placeholder="Título del documento descargable"
                   className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
                 />
               )}
@@ -913,13 +1553,239 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                 onChange={(e) => setMediaUrl(e.target.value)}
                 placeholder={
                   type === 'video'
-                    ? 'https://www.youtube.com/watch?v=...'
+                    ? 'https://www.youtube.com/watch?v=... o https://vimeo.com/...'
                     : type === 'audio'
-                    ? 'https://.../episodio.mp3'
+                    ? 'https://.../episodio.mp3, Spotify o SoundCloud'
                     : 'https://.../documento.pdf'
                 }
                 className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
               />
+
+              {(type === 'video' || type === 'audio') && (
+                <div className="pt-2 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                        Duración visible
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={40}
+                        value={mediaDurationLabel}
+                        onChange={(e) => setMediaDurationLabel(e.target.value)}
+                        placeholder="Ej. 24:15"
+                        className="w-full px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                    </div>
+                    {type === 'audio' && (
+                      <>
+                        <div>
+                          <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                            Temporada (opcional)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={seasonNumber}
+                            onChange={(e) => setSeasonNumber(e.target.value)}
+                            placeholder="1"
+                            className="w-full px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                            Episodio (opcional)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={9999}
+                            value={episodeNumber}
+                            onChange={(e) => setEpisodeNumber(e.target.value)}
+                            placeholder="1"
+                            className="w-full px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                        </div>
+                      </>
+                    )}
+                    {type === 'video' && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                          Subtítulos WebVTT (.vtt opcional)
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="url"
+                            value={mediaSubtitlesUrl}
+                            onChange={(e) => setMediaSubtitlesUrl(e.target.value)}
+                            placeholder="URL archivo .vtt"
+                            className="flex-1 px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                          <label className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#111111] text-white text-xs font-display font-bold uppercase cursor-pointer shrink-0">
+                            <Captions className="w-3.5 h-3.5" />
+                            <span>Subir .vtt</span>
+                            <input
+                              type="file"
+                              accept=".vtt,text/vtt"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleUploadSubtitleFile(f);
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Interactive Chapters */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-display text-[11px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
+                        Capítulos y marcas de tiempo ({mediaChapters.length})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMediaChapters((prev) => [
+                            ...prev,
+                            { id: generateId('chap'), timeSec: 0, label: '', description: '' },
+                          ])
+                        }
+                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-display font-bold uppercase cursor-pointer"
+                      >
+                        + Añadir capítulo
+                      </button>
+                    </div>
+                    {mediaChapters.map((chap, cIdx) => (
+                      <div key={chap.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        <input
+                          type="text"
+                          defaultValue={formatSecondsToTimestamp(chap.timeSec)}
+                          onBlur={(e) => {
+                            const sec = parseTimestampToSec(e.target.value);
+                            setMediaChapters((prev) =>
+                              prev.map((x, i) => (i === cIdx ? { ...x, timeSec: sec } : x))
+                            );
+                          }}
+                          placeholder="02:30"
+                          className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs font-tabular"
+                        />
+                        <input
+                          type="text"
+                          value={chap.label}
+                          onChange={(e) =>
+                            setMediaChapters((prev) =>
+                              prev.map((x, i) => (i === cIdx ? { ...x, label: e.target.value } : x))
+                            )
+                          }
+                          placeholder="Título del capítulo"
+                          className="sm:col-span-4 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={chap.description || ''}
+                          onChange={(e) =>
+                            setMediaChapters((prev) =>
+                              prev.map((x, i) => (i === cIdx ? { ...x, description: e.target.value } : x))
+                            )
+                          }
+                          placeholder="Nota breve (opcional)"
+                          className="sm:col-span-5 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setMediaChapters((prev) => prev.filter((_, i) => i !== cIdx))}
+                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {type === 'audio' && (
+                    <div>
+                      <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                        Notas del episodio (opcional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        maxLength={10000}
+                        value={episodeNotes}
+                        onChange={(e) => setEpisodeNotes(e.target.value)}
+                        placeholder="Créditos de producción, música, temas abordados..."
+                        className="w-full px-3 py-2 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
+                      Transcripción completa (desplegable y accesible, opcional)
+                    </label>
+                    <textarea
+                      rows={3}
+                      maxLength={40000}
+                      value={mediaTranscript}
+                      onChange={(e) => setMediaTranscript(e.target.value)}
+                      placeholder="Pega aquí la transcripción literal del video o episodio..."
+                      className="w-full px-3 py-2 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                  </div>
+
+                  {/* Related links inside player */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-display text-[11px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
+                        Enlaces mencionados en el video / pódcast
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMediaRelatedLinks((prev) => [...prev, { label: '', url: '' }])}
+                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-display font-bold uppercase cursor-pointer"
+                      >
+                        + Añadir enlace
+                      </button>
+                    </div>
+                    {mediaRelatedLinks.map((lnk, lIdx) => (
+                      <div key={lIdx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        <input
+                          type="text"
+                          value={lnk.label}
+                          onChange={(e) =>
+                            setMediaRelatedLinks((prev) =>
+                              prev.map((x, i) => (i === lIdx ? { ...x, label: e.target.value } : x))
+                            )
+                          }
+                          placeholder="Etiqueta del recurso"
+                          className="sm:col-span-5 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <input
+                          type="url"
+                          value={lnk.url || ''}
+                          onChange={(e) =>
+                            setMediaRelatedLinks((prev) =>
+                              prev.map((x, i) => (i === lIdx ? { ...x, url: e.target.value } : x))
+                            )
+                          }
+                          placeholder="https://..."
+                          className="sm:col-span-6 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setMediaRelatedLinks((prev) => prev.filter((_, i) => i !== lIdx))}
+                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1051,17 +1917,39 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                     {idx + 1}. {block.type === 'paragraph' && 'Párrafo'}
                     {block.type === 'heading' && 'Subtítulo'}
                     {block.type === 'quote' && 'Cita destacada'}
+                    {block.type === 'speaker_quote' && 'Cita de entrevistado'}
                     {block.type === 'image' && 'Imagen intercalada'}
                     {block.type === 'callout' && 'Recuadro destacado'}
+                    {block.type === 'context_box' && 'Caja de contexto'}
                     {block.type === 'list' && 'Lista'}
                     {block.type === 'document' && 'Documento / PDF adjunto'}
                     {block.type === 'footnote' && `Nota al pie [${block.footnoteNumber || 1}]`}
                     {block.type === 'timeline' && 'Línea de tiempo'}
                     {block.type === 'table' && 'Tabla de datos'}
+                    {block.type === 'columns' && 'Columnas paralelas'}
+                    {block.type === 'before_after' && 'Comparativa Antes / Después'}
+                    {block.type === 'metrics' && 'Métricas / Cifras clave'}
+                    {block.type === 'carousel' && 'Carrusel fotográfico'}
                     {block.type === 'divider' && 'Separador'}
                     {block.type === 'social_embed' && 'Incrustación social'}
                   </span>
                   <div className="flex items-center gap-1">
+                    {block.type === 'paragraph' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBlocks((prev) =>
+                            prev.map((b, i) =>
+                              i === idx ? { ...b, text: `${b.text || ''} (Apellido, Año)`.trimStart() } : b
+                            )
+                          )
+                        }
+                        title="Insertar cita APA en el texto"
+                        className="px-2 py-0.5 rounded border border-neutral-300 dark:border-neutral-700 text-[10px] font-bold hover:border-[var(--editorial-primary)] cursor-pointer mr-1"
+                      >
+                        + (Cita APA)
+                      </button>
+                    )}
                     <button type="button" onClick={() => moveBlock(idx, -1)} aria-label="Subir bloque" className="p-1 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer">
                       <ArrowUp className="w-3.5 h-3.5" />
                     </button>
@@ -1097,13 +1985,14 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                       value={block.level || 2}
                       onChange={(e) =>
                         setBlocks((prev) =>
-                          prev.map((b, i) => (i === idx ? { ...b, level: Number(e.target.value) as 2 | 3 } : b))
+                          prev.map((b, i) => (i === idx ? { ...b, level: Number(e.target.value) as 2 | 3 | 4 } : b))
                         )
                       }
                       className="px-2 py-2 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
                     >
                       <option value={2}>H2</option>
                       <option value={3}>H3</option>
+                      <option value={4}>H4</option>
                     </select>
                     <input
                       type="text"
@@ -1125,7 +2014,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                       onChange={(e) =>
                         setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
                       }
-                      placeholder="Texto de la cita destacada..."
+                      placeholder="Texto de la cita destacada (en modo APA, >40 palabras se formatea como cita en bloque)..."
                       className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm italic"
                     />
                     <input
@@ -1134,9 +2023,66 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                       onChange={(e) =>
                         setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, author: e.target.value } : b)))
                       }
-                      placeholder="Autoría de la cita (opcional)"
+                      placeholder="Autoría o referencia APA (ej. Apellido, 2024, p. 18)"
                       className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
                     />
+                  </div>
+                )}
+
+                {block.type === 'speaker_quote' && (
+                  <div className="space-y-2">
+                    <textarea
+                      rows={2}
+                      value={block.text || ''}
+                      onChange={(e) =>
+                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
+                      }
+                      placeholder="Declaración textual de la persona..."
+                      className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        value={block.author || ''}
+                        onChange={(e) =>
+                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, author: e.target.value } : b)))
+                        }
+                        placeholder="Nombre completo"
+                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                      <input
+                        type="text"
+                        value={block.speakerRole || ''}
+                        onChange={(e) =>
+                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, speakerRole: e.target.value } : b)))
+                        }
+                        placeholder="Cargo o rol"
+                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={block.imageUrl || ''}
+                          onChange={(e) =>
+                            setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, imageUrl: e.target.value } : b)))
+                          }
+                          placeholder="URL retrato"
+                          className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <label className="px-2.5 py-1.5 rounded-full bg-[#111111] text-white text-[11px] font-display font-bold uppercase cursor-pointer">
+                          Foto
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleUploadAsset(f, block.id);
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1178,6 +2124,469 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                       className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
                     />
                   </div>
+                )}
+
+                {block.type === 'context_box' && (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={block.calloutTitle || ''}
+                      onChange={(e) =>
+                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, calloutTitle: e.target.value } : b)))
+                      }
+                      placeholder="Título de la caja de contexto"
+                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                    />
+                    <textarea
+                      rows={3}
+                      value={block.text || ''}
+                      onChange={(e) =>
+                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
+                      }
+                      placeholder="Antecedentes, glosario o metodología..."
+                      className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
+                    />
+                  </div>
+                )}
+
+                {block.type === 'columns' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBlocks((prev) =>
+                            prev.map((b, i) =>
+                              i === idx
+                                ? {
+                                    ...b,
+                                    columns: [
+                                      b.columns?.[0] || { title: 'Columna 1', body: '' },
+                                      b.columns?.[1] || { title: 'Columna 2', body: '' },
+                                    ],
+                                  }
+                                : b
+                            )
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-bold uppercase cursor-pointer"
+                      >
+                        2 columnas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBlocks((prev) =>
+                            prev.map((b, i) =>
+                              i === idx
+                                ? {
+                                    ...b,
+                                    columns: [
+                                      b.columns?.[0] || { title: 'Columna 1', body: '' },
+                                      b.columns?.[1] || { title: 'Columna 2', body: '' },
+                                      b.columns?.[2] || { title: 'Columna 3', body: '' },
+                                    ],
+                                  }
+                                : b
+                            )
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-bold uppercase cursor-pointer"
+                      >
+                        3 columnas
+                      </button>
+                    </div>
+                    <div className={`grid grid-cols-1 ${(block.columns?.length || 2) === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2`}>
+                      {(block.columns || []).map((col, ci) => (
+                        <div key={ci} className="space-y-1.5">
+                          <input
+                            type="text"
+                            value={col.title || ''}
+                            onChange={(e) =>
+                              setBlocks((prev) =>
+                                prev.map((b, i) =>
+                                  i === idx
+                                    ? {
+                                        ...b,
+                                        columns: (b.columns || []).map((c, j) =>
+                                          j === ci ? { ...c, title: e.target.value } : c
+                                        ),
+                                      }
+                                    : b
+                                )
+                              )
+                            }
+                            placeholder={`Título col. ${ci + 1}`}
+                            className="w-full px-2.5 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                          />
+                          <textarea
+                            rows={3}
+                            value={col.body}
+                            onChange={(e) =>
+                              setBlocks((prev) =>
+                                prev.map((b, i) =>
+                                  i === idx
+                                    ? {
+                                        ...b,
+                                        columns: (b.columns || []).map((c, j) =>
+                                          j === ci ? { ...c, body: e.target.value } : c
+                                        ),
+                                      }
+                                    : b
+                                )
+                              )
+                            }
+                            placeholder={`Contenido col. ${ci + 1}`}
+                            className="w-full p-2 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {block.type === 'before_after' && (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={block.beforeImageUrl || ''}
+                            onChange={(e) =>
+                              setBlocks((prev) =>
+                                prev.map((b, i) => (i === idx ? { ...b, beforeImageUrl: e.target.value } : b))
+                              )
+                            }
+                            placeholder="URL imagen Antes"
+                            className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                          <label className="px-2.5 py-1.5 rounded-full bg-[#111111] text-white text-[11px] font-bold uppercase cursor-pointer">
+                            Subir
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleUploadAsset(f, { blockId: block.id, field: 'beforeImageUrl' });
+                              }}
+                            />
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          value={block.beforeLabel || ''}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) => (i === idx ? { ...b, beforeLabel: e.target.value } : b))
+                            )
+                          }
+                          placeholder="Etiqueta Antes"
+                          className="w-full px-2.5 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={block.afterImageUrl || ''}
+                            onChange={(e) =>
+                              setBlocks((prev) =>
+                                prev.map((b, i) => (i === idx ? { ...b, afterImageUrl: e.target.value } : b))
+                              )
+                            }
+                            placeholder="URL imagen Después"
+                            className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                          />
+                          <label className="px-2.5 py-1.5 rounded-full bg-[#111111] text-white text-[11px] font-bold uppercase cursor-pointer">
+                            Subir
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleUploadAsset(f, { blockId: block.id, field: 'afterImageUrl' });
+                              }}
+                            />
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          value={block.afterLabel || ''}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) => (i === idx ? { ...b, afterLabel: e.target.value } : b))
+                            )
+                          }
+                          placeholder="Etiqueta Después"
+                          className="w-full px-2.5 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={block.text || ''}
+                      onChange={(e) =>
+                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
+                      }
+                      placeholder="Pie comparativo (opcional)"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    />
+                  </div>
+                )}
+
+                {block.type === 'metrics' && (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={block.text || ''}
+                      onChange={(e) =>
+                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
+                      }
+                      placeholder="Título del panel de cifras (opcional)"
+                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                    />
+                    {(block.metricItems || []).map((m, mi) => (
+                      <div key={mi} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        <input
+                          type="text"
+                          value={m.value}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? {
+                                      ...b,
+                                      metricItems: (b.metricItems || []).map((x, j) =>
+                                        j === mi ? { ...x, value: e.target.value } : x
+                                      ),
+                                    }
+                                  : b
+                              )
+                            )
+                          }
+                          placeholder="Cifra (ej. 42%)"
+                          className="sm:col-span-3 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                        />
+                        <input
+                          type="text"
+                          value={m.label}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? {
+                                      ...b,
+                                      metricItems: (b.metricItems || []).map((x, j) =>
+                                        j === mi ? { ...x, label: e.target.value } : x
+                                      ),
+                                    }
+                                  : b
+                              )
+                            )
+                          }
+                          placeholder="Etiqueta"
+                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={m.detail || ''}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? {
+                                      ...b,
+                                      metricItems: (b.metricItems || []).map((x, j) =>
+                                        j === mi ? { ...x, detail: e.target.value } : x
+                                      ),
+                                    }
+                                  : b
+                              )
+                            )
+                          }
+                          placeholder="Fuente o aclaración"
+                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? { ...b, metricItems: (b.metricItems || []).filter((_, j) => j !== mi) }
+                                  : b
+                              )
+                            )
+                          }
+                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBlocks((prev) =>
+                          prev.map((b, i) =>
+                            i === idx
+                              ? { ...b, metricItems: [...(b.metricItems || []), { value: '', label: '', detail: '' }] }
+                              : b
+                          )
+                        )
+                      }
+                      className="text-xs font-display font-bold uppercase text-[var(--editorial-primary)] cursor-pointer"
+                    >
+                      + Añadir métrica
+                    </button>
+                  </div>
+                )}
+
+                {block.type === 'carousel' && (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-neutral-500">
+                        Diapositivas: {(block.carouselItems || []).length}
+                      </span>
+                      <div className="flex gap-2">
+                        <label className="px-3 py-1 rounded-full bg-[#111111] text-white text-[11px] font-display font-bold uppercase cursor-pointer">
+                          + Subir foto
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleUploadAsset(f, { blockId: block.id, carouselAdd: true });
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? {
+                                      ...b,
+                                      carouselItems: [
+                                        ...(b.carouselItems || []),
+                                        { id: generateId('car'), url: '', alt: '', caption: '', credit: '' },
+                                      ],
+                                    }
+                                  : b
+                              )
+                            )
+                          }
+                          className="px-2.5 py-1 rounded-full border border-neutral-400 text-[11px] font-bold uppercase cursor-pointer"
+                        >
+                          + URL
+                        </button>
+                      </div>
+                    </div>
+                    {(block.carouselItems || []).map((item, ci) => (
+                      <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        <input
+                          type="text"
+                          value={item.url}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? {
+                                      ...b,
+                                      carouselItems: (b.carouselItems || []).map((x, j) =>
+                                        j === ci ? { ...x, url: e.target.value } : x
+                                      ),
+                                    }
+                                  : b
+                              )
+                            )
+                          }
+                          placeholder="URL imagen"
+                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={item.caption}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? {
+                                      ...b,
+                                      carouselItems: (b.carouselItems || []).map((x, j) =>
+                                        j === ci ? { ...x, caption: e.target.value } : x
+                                      ),
+                                    }
+                                  : b
+                              )
+                            )
+                          }
+                          placeholder="Pie de foto"
+                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={item.credit}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? {
+                                      ...b,
+                                      carouselItems: (b.carouselItems || []).map((x, j) =>
+                                        j === ci ? { ...x, credit: e.target.value } : x
+                                      ),
+                                    }
+                                  : b
+                              )
+                            )
+                          }
+                          placeholder="Crédito"
+                          className="sm:col-span-3 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBlocks((prev) =>
+                              prev.map((b, i) =>
+                                i === idx
+                                  ? { ...b, carouselItems: (b.carouselItems || []).filter((_, j) => j !== ci) }
+                                  : b
+                              )
+                            )
+                          }
+                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {block.type === 'divider' && (
+                  <select
+                    value={block.dividerVariant || 'line'}
+                    onChange={(e) =>
+                      setBlocks((prev) =>
+                        prev.map((b, i) =>
+                          i === idx
+                            ? { ...b, dividerVariant: e.target.value as 'line' | 'asterisks' | 'red_rule' }
+                            : b
+                        )
+                      )
+                    }
+                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                  >
+                    <option value="line">Línea sutil centrada</option>
+                    <option value="asterisks">Asteriscos editoriales (* * *)</option>
+                    <option value="red_rule">Trazo rojo editorial</option>
+                  </select>
                 )}
 
                 {block.type === 'list' && (
@@ -1294,7 +2703,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                         onChange={(e) =>
                           setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, imageCaption: e.target.value } : b)))
                         }
-                        placeholder="Pie de foto"
+                        placeholder="Pie de foto o nota de figura"
                         className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
                       />
                       <input
@@ -1411,15 +2820,28 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
 
                 {block.type === 'table' && (
                   <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Título de la tabla"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={block.text || ''}
+                        onChange={(e) =>
+                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
+                        }
+                        placeholder="Título de la tabla"
+                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                      />
+                      <input
+                        type="text"
+                        value={block.tableCaption || ''}
+                        onChange={(e) =>
+                          setBlocks((prev) =>
+                            prev.map((b, i) => (i === idx ? { ...b, tableCaption: e.target.value } : b))
+                          )
+                        }
+                        placeholder="Nota / pie de tabla (ej. Fuente: DANE)"
+                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      />
+                    </div>
                     <input
                       type="text"
                       value={(block.tableHeaders || []).join(' | ')}
@@ -1491,9 +2913,15 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                   ['paragraph', 'Párrafo'],
                   ['heading', 'Subtítulo'],
                   ['quote', 'Cita destacada'],
+                  ['speaker_quote', 'Cita entrevista'],
                   ['callout', 'Recuadro'],
+                  ['context_box', 'Contexto'],
                   ['list', 'Lista'],
+                  ['columns', 'Columnas'],
+                  ['before_after', 'Antes / Después'],
+                  ['metrics', 'Métricas'],
                   ['image', 'Imagen'],
+                  ['carousel', 'Carrusel'],
                   ['document', 'PDF / Anexo'],
                   ['footnote', 'Nota al pie'],
                   ['timeline', 'Línea de tiempo'],
@@ -1513,6 +2941,101 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* APA 7 Bibliographic References Assistant */}
+          <div className="space-y-3 border-t border-neutral-300 dark:border-neutral-800 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider">
+                <BookMarked className="w-3.5 h-3.5 text-[var(--editorial-primary)]" />
+                Referencias bibliográficas APA 7 ({apaReferences.length})
+              </span>
+              <button
+                type="button"
+                disabled={apaReferences.length >= 60}
+                onClick={() =>
+                  setApaReferences((prev) => [
+                    ...prev,
+                    { id: generateId('apa'), author: '', year: '', title: '', publisher: '', url: '' },
+                  ])
+                }
+                className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase cursor-pointer"
+              >
+                + Añadir referencia APA
+              </button>
+            </div>
+            {apaReferences.map((ref, idx) => (
+              <div key={ref.id} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-2 bg-[#F8F6F1]/50 dark:bg-[#181818]">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <input
+                    type="text"
+                    value={ref.author}
+                    onChange={(e) =>
+                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, author: e.target.value } : x)))
+                    }
+                    placeholder="Autor (ej. Fals Borda, O.)"
+                    className="sm:col-span-5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  />
+                  <input
+                    type="text"
+                    value={ref.year}
+                    onChange={(e) =>
+                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, year: e.target.value } : x)))
+                    }
+                    placeholder="Año (ej. 2024)"
+                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  />
+                  <input
+                    type="text"
+                    value={ref.publisher}
+                    onChange={(e) =>
+                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, publisher: e.target.value } : x)))
+                    }
+                    placeholder="Editorial / Revista / Institución"
+                    className="sm:col-span-4 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setApaReferences((prev) => prev.filter((_, i) => i !== idx))}
+                    className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
+                  >
+                    Quitar
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <input
+                    type="text"
+                    value={ref.title}
+                    onChange={(e) =>
+                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, title: e.target.value } : x)))
+                    }
+                    placeholder="Título del libro, artículo o informe"
+                    className="sm:col-span-6 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  />
+                  <input
+                    type="url"
+                    value={ref.url || ''}
+                    onChange={(e) =>
+                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x)))
+                    }
+                    placeholder="URL o DOI (opcional)"
+                    className="sm:col-span-4 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  />
+                  <input
+                    type="text"
+                    value={ref.accessDate || ''}
+                    onChange={(e) =>
+                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, accessDate: e.target.value } : x)))
+                    }
+                    placeholder="Consulta (opc.)"
+                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  />
+                </div>
+                <p className="text-[11px] text-neutral-500 italic">
+                  Vista APA: {buildApaReferenceString(ref)}
+                </p>
+              </div>
+            ))}
           </div>
 
           {/* Sources Consulted */}
@@ -1728,7 +3251,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
             </div>
 
             {isAdmin && (
-              <div className="flex items-center gap-5 pt-4">
+              <div className="flex flex-wrap items-center gap-4 pt-4">
                 <label className="inline-flex items-center gap-2 text-xs font-display font-bold uppercase cursor-pointer">
                   <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} />
                   <span>Nota destacada</span>
@@ -1736,6 +3259,10 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                 <label className="inline-flex items-center gap-2 text-xs font-display font-bold uppercase cursor-pointer">
                   <input type="checkbox" checked={breaking} onChange={(e) => setBreaking(e.target.checked)} />
                   <span>Última hora</span>
+                </label>
+                <label className="inline-flex items-center gap-2 text-xs font-display font-bold uppercase cursor-pointer">
+                  <input type="checkbox" checked={pinnedInFeed} onChange={(e) => setPinnedInFeed(e.target.checked)} />
+                  <span>Fijar en el feed</span>
                 </label>
               </div>
             )}
@@ -1779,81 +3306,158 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
           </div>
         </div>
 
-        {/* Live Split Preview */}
+        {/* Live Split Preview with Viewport Switcher */}
         {showPreview && (
-          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[#F8F6F1] dark:bg-[#0D0D0D] p-6 space-y-5 max-h-[85vh] overflow-y-auto">
-            <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-              Vista previa editorial
-            </p>
-            {coverImage && (
-              <div className={type === 'infographic' ? 'overflow-hidden rounded-xl bg-neutral-900' : 'aspect-[16/9] rounded-xl overflow-hidden bg-neutral-900'}>
-                <EditorialImage
-                  src={coverImage}
-                  alt={coverAlt || title}
-                  fallbackTitle={title}
-                  sensitive={sensitiveContent}
-                  sensitiveWarning={sensitiveWarning}
-                  className={type === 'infographic' ? 'w-full h-auto object-contain' : 'w-full h-full object-cover'}
-                />
+          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[#F8F6F1] dark:bg-[#0D0D0D] p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-neutral-200 dark:border-neutral-800">
+              <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                Vista previa editorial ({headerStyle} · {coverLayout})
+              </p>
+              <div className="inline-flex items-center rounded-full border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setPreviewViewport('desktop')}
+                  aria-label="Vista escritorio"
+                  className={`p-1.5 rounded-full cursor-pointer ${previewViewport === 'desktop' ? 'bg-[#111111] text-white dark:bg-white dark:text-black' : 'text-neutral-500'}`}
+                >
+                  <Monitor className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewViewport('tablet')}
+                  aria-label="Vista tableta"
+                  className={`p-1.5 rounded-full cursor-pointer ${previewViewport === 'tablet' ? 'bg-[#111111] text-white dark:bg-white dark:text-black' : 'text-neutral-500'}`}
+                >
+                  <Tablet className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewViewport('mobile')}
+                  aria-label="Vista móvil"
+                  className={`p-1.5 rounded-full cursor-pointer ${previewViewport === 'mobile' ? 'bg-[#111111] text-white dark:bg-white dark:text-black' : 'text-neutral-500'}`}
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                </button>
               </div>
-            )}
-            <h1 className="font-display text-3xl font-extrabold leading-tight">
-              {title || 'Titular de la publicación'}
-            </h1>
-            {subtitle && <p className="text-base text-neutral-600 dark:text-neutral-300">{subtitle}</p>}
-            {keyPoints.filter((k) => k.trim()).length > 0 && (
-              <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-2">
-                <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                  Puntos clave
-                </p>
-                <ul className="list-disc pl-5 space-y-1 text-sm">
-                  {keyPoints.filter((k) => k.trim()).map((kp, i) => (
-                    <li key={i}>{kp}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <div className="space-y-4 font-editorial text-base leading-relaxed">
-              {blocks.map((b) => (
-                <div key={b.id}>
-                  {b.type === 'paragraph' && <p>{b.text}</p>}
-                  {b.type === 'heading' && <h2 className="font-display text-2xl font-bold">{b.text}</h2>}
-                  {b.type === 'quote' && (
-                    <blockquote className="py-3 border-y border-neutral-400 italic text-center">
-                      “{b.text}”
-                    </blockquote>
-                  )}
-                  {b.type === 'callout' && (
-                    <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-1">
-                      {b.calloutTitle && <p className="font-display text-sm font-bold">{b.calloutTitle}</p>}
-                      <p className="text-sm">{b.text}</p>
-                    </div>
-                  )}
-                  {b.type === 'list' &&
-                    (b.listStyle === 'ordered' ? (
-                      <ol className="list-decimal pl-5 space-y-1">
-                        {(b.listItems || []).filter(Boolean).map((item, i) => (
-                          <li key={i}>{item}</li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <ul className="list-disc pl-5 space-y-1">
-                        {(b.listItems || []).filter(Boolean).map((item, i) => (
-                          <li key={i}>{item}</li>
-                        ))}
-                      </ul>
-                    ))}
-                  {b.type === 'document' && b.documentUrl && (
-                    <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-3 flex items-center justify-between text-xs">
-                      <span className="font-bold">{b.documentTitle || 'Documento adjunto'}</span>
-                      <span className="uppercase text-[var(--editorial-primary)]">PDF</span>
-                    </div>
-                  )}
-                  {b.type === 'image' && b.imageUrl && (
-                    <EditorialImage src={b.imageUrl} alt={b.imageAlt || ''} className="w-full aspect-video object-cover" />
-                  )}
+            </div>
+
+            <div
+              className={`mx-auto transition-all space-y-5 ${
+                previewViewport === 'mobile'
+                  ? 'max-w-[360px] rounded-2xl border border-neutral-300 dark:border-neutral-800 p-4 bg-[#F8F6F1] dark:bg-[#0D0D0D]'
+                  : previewViewport === 'tablet'
+                  ? 'max-w-[680px]'
+                  : 'w-full'
+              }`}
+              style={
+                useCustomAccent
+                  ? ({ '--editorial-primary': accentColor } as React.CSSProperties)
+                  : undefined
+              }
+            >
+              {coverImage && (
+                <div className={type === 'infographic' ? 'overflow-hidden rounded-xl bg-neutral-900' : 'aspect-[16/9] rounded-xl overflow-hidden bg-neutral-900'}>
+                  <EditorialImage
+                    src={coverImage}
+                    alt={coverAlt || title}
+                    fallbackTitle={title}
+                    sensitive={sensitiveContent}
+                    sensitiveWarning={sensitiveWarning}
+                    className={type === 'infographic' ? 'w-full h-auto object-contain' : 'w-full h-full object-cover'}
+                  />
                 </div>
-              ))}
+              )}
+              <h1 className={`font-display text-3xl font-extrabold leading-tight ${headerStyle === 'minimal' ? 'text-center' : ''}`}>
+                {title || 'Titular de la publicación'}
+              </h1>
+              {subtitle && <p className={`text-base text-neutral-600 dark:text-neutral-300 ${headerStyle === 'minimal' ? 'text-center' : ''}`}>{subtitle}</p>}
+              {keyPoints.filter((k) => k.trim()).length > 0 && (
+                <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-2">
+                  <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                    Puntos clave
+                  </p>
+                  <ul className="list-disc pl-5 space-y-1 text-sm">
+                    {keyPoints.filter((k) => k.trim()).map((kp, i) => (
+                      <li key={i}>{kp}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="space-y-4 font-editorial text-base leading-relaxed">
+                {blocks.map((b, bIdx) => (
+                  <div key={b.id}>
+                    {b.type === 'paragraph' && (
+                      <p className={bIdx === 0 ? 'editorial-lead' : paragraphIndent ? 'editorial-paragraph-indent' : ''}>
+                        {b.text}
+                      </p>
+                    )}
+                    {b.type === 'heading' && <h2 className="font-display text-2xl font-bold">{b.text}</h2>}
+                    {b.type === 'quote' && (
+                      <blockquote className="py-3 border-y border-neutral-300 dark:border-neutral-700 italic text-center">
+                        “{b.text}”
+                      </blockquote>
+                    )}
+                    {b.type === 'speaker_quote' && (
+                      <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-1">
+                        <p className="italic">“{b.text}”</p>
+                        <p className="text-xs font-display font-bold uppercase text-[var(--editorial-primary)]">
+                          {b.author} {b.speakerRole ? `· ${b.speakerRole}` : ''}
+                        </p>
+                      </div>
+                    )}
+                    {(b.type === 'callout' || b.type === 'context_box') && (
+                      <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-1">
+                        {b.calloutTitle && <p className="font-display text-sm font-bold">{b.calloutTitle}</p>}
+                        <p className="text-sm">{b.text}</p>
+                      </div>
+                    )}
+                    {b.type === 'metrics' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {(b.metricItems || []).map((m, mi) => (
+                          <div key={mi} className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-3">
+                            <p className="font-display text-2xl font-extrabold text-[var(--editorial-primary)]">{m.value}</p>
+                            <p className="text-xs font-bold">{m.label}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {b.type === 'columns' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        {(b.columns || []).map((c, ci) => (
+                          <div key={ci} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 text-sm">
+                            {c.title && <p className="font-display font-bold">{c.title}</p>}
+                            <p>{c.body}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {b.type === 'list' &&
+                      (b.listStyle === 'ordered' ? (
+                        <ol className="list-decimal pl-5 space-y-1">
+                          {(b.listItems || []).filter(Boolean).map((item, i) => (
+                            <li key={i}>{item}</li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <ul className="list-disc pl-5 space-y-1">
+                          {(b.listItems || []).filter(Boolean).map((item, i) => (
+                            <li key={i}>{item}</li>
+                          ))}
+                        </ul>
+                      ))}
+                    {b.type === 'document' && b.documentUrl && (
+                      <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-3 flex items-center justify-between text-xs">
+                        <span className="font-bold">{b.documentTitle || 'Documento adjunto'}</span>
+                        <span className="uppercase text-[var(--editorial-primary)]">PDF</span>
+                      </div>
+                    )}
+                    {b.type === 'image' && b.imageUrl && (
+                      <EditorialImage src={b.imageUrl} alt={b.imageAlt || ''} className="w-full aspect-video object-cover" />
+                    )}
+                    {b.type === 'divider' && <hr className="my-4 border-neutral-300 dark:border-neutral-700 w-1/3 mx-auto" />}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

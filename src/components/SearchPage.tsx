@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Search, SlidersHorizontal, Tag } from 'lucide-react';
+import { Clock, Headphones, Play, Search, SlidersHorizontal, Tag } from 'lucide-react';
+import { AudioTrackItem, useMediaPlayer } from '../context/MediaPlayerContext';
 import { useSite } from '../context/SiteContext';
-import { toDate } from '../lib/utils';
+import { getEmbedUrl, sanitizeExternalUrl, toDate } from '../lib/utils';
 import { Post, PostType } from '../types/editorial';
 import { ArticleCard } from './ArticleCard';
 
@@ -17,6 +18,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   initialSeriesSlug,
 }) => {
   const { publishedPosts, categories, collaborators, adminIdentities, seriesList, navigate } = useSite();
+  const { playTrack } = useMediaPlayer();
 
   const [queryText, setQueryText] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | PostType>('all');
@@ -99,6 +101,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     }
 
     scored.sort((a, b) => {
+      if (!q && Boolean(a.post.pinnedInFeed) !== Boolean(b.post.pinnedInFeed)) {
+        return a.post.pinnedInFeed ? -1 : 1;
+      }
       if (sortBy === 'relevance' && q) {
         if (b.score !== a.score) return b.score - a.score;
       }
@@ -144,6 +149,101 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           </p>
         )}
       </div>
+
+      {/* Series Audio Playlist & Episode Order */}
+      {activeSeries && results.length > 0 && (() => {
+        const orderedSeriesPosts = [...results].sort((a, b) => {
+          const epA = (a.seasonNumber || 1) * 10000 + (a.episodeNumber || 999);
+          const epB = (b.seasonNumber || 1) * 10000 + (b.episodeNumber || 999);
+          if (epA !== epB) return epA - epB;
+          return (
+            toDate(a.publishedAt || a.createdAt).getTime() -
+            toDate(b.publishedAt || b.createdAt).getTime()
+          );
+        });
+        const playableAudioQueue: AudioTrackItem[] = orderedSeriesPosts
+          .filter((p) => {
+            if (p.type !== 'audio' || !p.mediaUrl) return false;
+            const info = getEmbedUrl(p.mediaUrl);
+            return info.kind === 'audio' || info.kind === 'link';
+          })
+          .map((p) => ({
+            postId: p.id,
+            title: p.title,
+            slug: p.slug,
+            authorName: p.authorName,
+            mediaUrl: sanitizeExternalUrl(p.mediaUrl || ''),
+            coverImage: p.coverImage,
+            seasonNumber: p.seasonNumber,
+            episodeNumber: p.episodeNumber,
+          }))
+          .filter((t) => Boolean(t.mediaUrl));
+
+        return (
+          <section className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 sm:p-6 space-y-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                  Índice cronológico de la serie ({orderedSeriesPosts.length} entregas)
+                </p>
+                <h2 className="font-display text-xl font-extrabold uppercase tracking-tight">
+                  Lista de episodios y entregas
+                </h2>
+              </div>
+              {playableAudioQueue.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => playTrack(playableAudioQueue[0], playableAudioQueue)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                >
+                  <Headphones className="w-4 h-4" aria-hidden="true" />
+                  <span>Reproducir serie en audio ({playableAudioQueue.length})</span>
+                </button>
+              )}
+            </div>
+            <ol className="divide-y divide-neutral-200 dark:divide-neutral-800">
+              {orderedSeriesPosts.map((ep, idx) => {
+                const epAudio = playableAudioQueue.find((t) => t.postId === ep.id);
+                return (
+                  <li key={ep.id} className="py-2.5 flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0 flex items-center gap-3">
+                      <span className="font-tabular text-xs font-bold text-[var(--editorial-primary)] w-6 shrink-0">
+                        {ep.episodeNumber ? `Ep.${ep.episodeNumber}` : `0${idx + 1}`}
+                      </span>
+                      <a
+                        href={`/articulo/${ep.slug}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(`/articulo/${ep.slug}`);
+                        }}
+                        className="font-display font-bold hover:text-[var(--editorial-primary)] truncate"
+                      >
+                        {ep.title}
+                      </a>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 text-xs text-neutral-500">
+                      <span className="inline-flex items-center gap-1 font-tabular">
+                        <Clock className="w-3 h-3" aria-hidden="true" />
+                        {ep.mediaDurationLabel || `${ep.readTimeMinutes} min`}
+                      </span>
+                      {epAudio && (
+                        <button
+                          type="button"
+                          onClick={() => playTrack(epAudio, playableAudioQueue)}
+                          aria-label={`Reproducir ${ep.title}`}
+                          className="p-1.5 rounded-full bg-neutral-900 text-white dark:bg-white dark:text-black hover:bg-[var(--editorial-primary)] hover:text-white cursor-pointer transition-colors"
+                        >
+                          <Play className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        );
+      })()}
 
       {/* Search Bar & Filters */}
       <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-4 shadow-sm">

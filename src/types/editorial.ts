@@ -2,6 +2,10 @@ export type UserRole = 'admin' | 'collaborator' | 'reader';
 export type AccountStatus = 'active' | 'pending' | 'suspended';
 export type OutletType = 'medio' | 'independiente';
 export type DataSaverMode = 'auto' | 'on' | 'off';
+export type PoliticalAffiliationChoice = '' | 'no' | 'yes' | 'prefer_not_to_say';
+export type CoverLayoutStyle = 'full' | 'compact' | 'overlay';
+export type HeaderStyleVariant = 'classic' | 'editorial' | 'minimal';
+
 export type PostType =
   | 'article'
   | 'gallery'
@@ -10,6 +14,7 @@ export type PostType =
   | 'infographic'
   | 'document'
   | 'livestream';
+
 export type EditorialKind =
   | 'articulo'
   | 'investigacion'
@@ -23,6 +28,7 @@ export type EditorialKind =
   | 'explicativo'
   | 'datos'
   | 'carta';
+
 export type PostStatus = 'draft' | 'in_review' | 'scheduled' | 'published' | 'unpublished';
 export type ModerationMode = 'post' | 'pre';
 
@@ -120,12 +126,29 @@ export interface CollaboratorPrivacyFlags {
   showTopics?: boolean;
   showJoinDate?: boolean;
   showPostCount?: boolean;
+  showProfession?: boolean;
+  showJobTitle?: boolean;
+  showOrganization?: boolean;
+  showCityCountry?: boolean;
+  showAge?: boolean;
+  showPoliticalAffiliation?: boolean;
+  showPoliticalPartyLogo?: boolean;
 }
 
 export interface CollaboratorPublic extends CollaboratorPrivacyFlags {
   uid: string;
   name: string;
   outletType: OutletType;
+  profession?: string;
+  jobTitle?: string;
+  organization?: string;
+  city?: string;
+  country?: string;
+  publicAge?: number;
+  politicalAffiliation?: PoliticalAffiliationChoice;
+  politicalPartyName?: string;
+  politicalPartyRole?: string;
+  politicalPartyLogoUrl?: string;
   bio?: string;
   avatarUrl?: string;
   coverUrl?: string;
@@ -138,6 +161,7 @@ export interface CollaboratorPublic extends CollaboratorPrivacyFlags {
   topics?: string[];
   status: AccountStatus;
   postCount: number;
+  inviteHash?: string;
   directoryHidden?: boolean;
   directoryFeatured?: boolean;
   directoryOrder?: number;
@@ -149,6 +173,18 @@ export interface CollaboratorSettings extends CollaboratorPrivacyFlags {
   uid: string;
   name: string;
   outletType: OutletType;
+  profession?: string;
+  jobTitle?: string;
+  organization?: string;
+  city?: string;
+  country?: string;
+  birthYear?: number;
+  politicalAffiliation?: PoliticalAffiliationChoice;
+  politicalPartyName?: string;
+  politicalPartyRole?: string;
+  politicalPartyLogoUrl?: string;
+  politicalConsentAccepted?: boolean;
+  politicalConsentAcceptedAt?: string;
   bio?: string;
   avatarUrl?: string;
   coverUrl?: string;
@@ -164,12 +200,54 @@ export interface CollaboratorSettings extends CollaboratorPrivacyFlags {
 
 export type AdminIdentityId = 'owner' | 'magazine';
 
-export interface AdminPublicIdentity {
+export interface AdminPublicIdentity extends CollaboratorPrivacyFlags {
   id: AdminIdentityId;
   identityType: AdminIdentityId;
   name: string;
   roleTitle?: string;
   outletType: OutletType;
+  profession?: string;
+  jobTitle?: string;
+  organization?: string;
+  city?: string;
+  country?: string;
+  publicAge?: number;
+  politicalAffiliation?: PoliticalAffiliationChoice;
+  politicalPartyName?: string;
+  politicalPartyRole?: string;
+  politicalPartyLogoUrl?: string;
+  bio?: string;
+  avatarUrl?: string;
+  coverUrl?: string;
+  websiteUrl?: string;
+  socialTwitter?: string;
+  socialInstagram?: string;
+  socialYoutube?: string;
+  publicEmail?: string;
+  location?: string;
+  topics?: string[];
+  showInDirectory: boolean;
+  updatedAt?: unknown;
+}
+
+export interface AdminPrivateIdentity extends CollaboratorPrivacyFlags {
+  id: AdminIdentityId;
+  identityType: AdminIdentityId;
+  name: string;
+  roleTitle?: string;
+  outletType: OutletType;
+  profession?: string;
+  jobTitle?: string;
+  organization?: string;
+  city?: string;
+  country?: string;
+  birthYear?: number;
+  politicalAffiliation?: PoliticalAffiliationChoice;
+  politicalPartyName?: string;
+  politicalPartyRole?: string;
+  politicalPartyLogoUrl?: string;
+  politicalConsentAccepted?: boolean;
+  politicalConsentAcceptedAt?: string;
   bio?: string;
   avatarUrl?: string;
   coverUrl?: string;
@@ -218,7 +296,13 @@ export type ContentBlockType =
   | 'social_embed'
   | 'callout'
   | 'list'
-  | 'document';
+  | 'document'
+  | 'columns'
+  | 'before_after'
+  | 'metrics'
+  | 'context_box'
+  | 'speaker_quote'
+  | 'carousel';
 
 export interface TimelineEntry {
   date: string;
@@ -237,12 +321,50 @@ export interface SourceReference {
   url?: string;
 }
 
+export interface MetricItem {
+  value: string;
+  label: string;
+  detail?: string;
+}
+
+export interface ColumnItem {
+  title?: string;
+  body: string;
+}
+
+export interface GalleryItem {
+  id: string;
+  url: string;
+  alt: string;
+  caption: string;
+  credit: string;
+}
+
+export interface ApaReference {
+  id: string;
+  author: string;
+  year: string;
+  title: string;
+  publisher: string;
+  url?: string;
+  accessDate?: string;
+  formatted?: string;
+}
+
+export interface MediaChapter {
+  id: string;
+  timeSec: number;
+  label: string;
+  description?: string;
+}
+
 export interface ContentBlock {
   id: string;
   type: ContentBlockType;
   text?: string;
-  level?: 2 | 3;
+  level?: 2 | 3 | 4;
   author?: string;
+  speakerRole?: string;
   imageUrl?: string;
   imageAlt?: string;
   imageCredit?: string;
@@ -251,6 +373,7 @@ export interface ContentBlock {
   timelineEntries?: TimelineEntry[];
   tableHeaders?: string[];
   tableRows?: string[][];
+  tableCaption?: string;
   embedUrl?: string;
   embedPlatform?: string;
   calloutTone?: 'info' | 'key_fact' | 'warning';
@@ -260,14 +383,14 @@ export interface ContentBlock {
   documentUrl?: string;
   documentTitle?: string;
   documentDescription?: string;
-}
-
-export interface GalleryItem {
-  id: string;
-  url: string;
-  alt: string;
-  caption: string;
-  credit: string;
+  dividerVariant?: 'line' | 'asterisks' | 'red_rule';
+  columns?: ColumnItem[];
+  beforeImageUrl?: string;
+  afterImageUrl?: string;
+  beforeLabel?: string;
+  afterLabel?: string;
+  metricItems?: MetricItem[];
+  carouselItems?: GalleryItem[];
 }
 
 export interface Post {
@@ -280,6 +403,7 @@ export interface Post {
   status: PostStatus;
   featured: boolean;
   breaking: boolean;
+  pinnedInFeed?: boolean;
   isSample: boolean;
   categoryId: string;
   categoryName: string;
@@ -297,6 +421,13 @@ export interface Post {
   coverImage?: string;
   coverAlt?: string;
   coverCredit?: string;
+  coverLayout?: CoverLayoutStyle;
+  headerStyle?: HeaderStyleVariant;
+  accentColor?: string;
+  paragraphIndent?: boolean;
+  apaMode?: boolean;
+  apaReferences?: ApaReference[];
+  showTableOfContents?: boolean;
   blocks: ContentBlock[];
   galleryItems?: GalleryItem[];
   corrections?: CorrectionEntry[];
@@ -308,6 +439,14 @@ export interface Post {
   commentsEnabled?: boolean;
   mediaUrl?: string;
   mediaSourceType?: string;
+  mediaChapters?: MediaChapter[];
+  mediaTranscript?: string;
+  mediaSubtitlesUrl?: string;
+  mediaDurationLabel?: string;
+  mediaRelatedLinks?: SourceReference[];
+  episodeNotes?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
   documentTitle?: string;
   audioDurationSec?: number;
   readTimeMinutes: number;
@@ -317,6 +456,15 @@ export interface Post {
   scheduledFor?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
+}
+
+export interface PostRevision {
+  id: string;
+  savedAt: string;
+  label: string;
+  title: string;
+  subtitle: string;
+  blocks: ContentBlock[];
 }
 
 export interface CommentItem {
