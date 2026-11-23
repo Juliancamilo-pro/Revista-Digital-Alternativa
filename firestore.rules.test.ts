@@ -5,6 +5,7 @@ import {
   diagnosePostSaveFailure,
   mergeExistingAndPatch,
   normalizeLegacyPostForRules,
+  stripUndefinedDeep,
   validatePostDocumentAgainstRules,
 } from './src/lib/postValidation.ts';
 
@@ -384,6 +385,108 @@ describe('Posts Create/Edit Validation by Role & Legacy Seed Migration (Phase 1)
         isAdmin: true,
         uid: 'uid_admin_1',
         existingDoc: existingPost,
+      }),
+      []
+    );
+  });
+
+  it('verifies apaMode/apaReferences are completely removed from rules and cleaned with deleteField() on legacy post updates', () => {
+    const rules = fs.readFileSync('firestore.rules', 'utf8');
+    assert.doesNotMatch(rules, /apaMode|apaReferences/);
+
+    const oldPostWithApa = buildValidBasePost({
+      id: 'post_legacy_apa_1',
+      createdAt: fakeTimestamp(1720000000000),
+      apaMode: true,
+      apaReferences: [{ id: 'apa_1', author: 'Autor', year: '2024', title: 'Libro', publisher: 'Ed' }],
+    });
+
+    const naiveErrors = validatePostDocumentAgainstRules(
+      mergeExistingAndPatch(oldPostWithApa, { title: 'Editada sin limpiar APA', updatedAt: makeServerTimestamp() }),
+      { isCreate: false, isAdmin: true, uid: 'uid_admin_1', existingDoc: oldPostWithApa }
+    );
+    assert.ok(naiveErrors.some((e) => e.includes('apaMode')));
+    assert.ok(naiveErrors.some((e) => e.includes('apaReferences')));
+
+    const cleanedMerged = mergeExistingAndPatch(oldPostWithApa, {
+      title: 'Editada limpiando APA heredado',
+      apaMode: makeDeleteField(),
+      apaReferences: makeDeleteField(),
+      updatedAt: makeServerTimestamp(),
+    });
+    assert.equal('apaMode' in cleanedMerged, false);
+    assert.equal('apaReferences' in cleanedMerged, false);
+    assert.deepEqual(
+      validatePostDocumentAgainstRules(cleanedMerged, {
+        isCreate: false,
+        isAdmin: true,
+        uid: 'uid_admin_1',
+        existingDoc: oldPostWithApa,
+      }),
+      []
+    );
+  });
+
+  it('preserves Timestamp instances and serverTimestamp() sentinels when stripUndefinedDeep wraps normalized posts', () => {
+    class MockFirestoreTimestamp {
+      seconds: number;
+      nanoseconds: number;
+      constructor(ms: number) {
+        this.seconds = Math.floor(ms / 1000);
+        this.nanoseconds = 0;
+      }
+      toDate() {
+        return new Date(this.seconds * 1000);
+      }
+      toMillis() {
+        return this.seconds * 1000;
+      }
+    }
+    class MockServerTimestampFieldValue {
+      _methodName = 'serverTimestamp';
+    }
+
+    const originalCreatedAt = new MockFirestoreTimestamp(1730000000000);
+    const legacyPost: Record<string, unknown> = {
+      id: 'post_mwr5xwg3_yvwkf55',
+      title: 'Publicación con campo heredado',
+      slug: 'publicacion-campo-heredado',
+      type: 'article',
+      status: 'published',
+      categoryId: 'cat_nacional',
+      categoryName: 'Nacional',
+      categorySlug: 'nacional',
+      tags: ['nacional'],
+      authorId: 'uid_admin_1',
+      authorName: 'Redacción',
+      blocks: [{ id: 'b1', type: 'paragraph', text: 'Texto', extraUndefined: undefined }],
+      readTimeMinutes: 2,
+      apaMode: true,
+      createdAt: originalCreatedAt,
+      updatedAt: originalCreatedAt,
+    };
+
+    const normalized = stripUndefinedDeep(
+      normalizeLegacyPostForRules(legacyPost, 'post_mwr5xwg3_yvwkf55', {
+        fallbackCategory: { id: 'cat_nacional', name: 'Nacional', slug: 'nacional' },
+        fallbackAuthorId: 'uid_admin_1',
+        fallbackAuthorName: 'Redacción',
+        toTimestamp: (val) => new MockFirestoreTimestamp(typeof val === 'number' ? val : Date.now()),
+        nowTimestamp: () => new MockServerTimestampFieldValue(),
+        isNativeTimestamp: (val) => val instanceof MockFirestoreTimestamp,
+      })
+    );
+
+    assert.ok(normalized.createdAt instanceof MockFirestoreTimestamp);
+    assert.ok(normalized.publishedAt instanceof MockFirestoreTimestamp);
+    assert.ok(normalized.updatedAt instanceof MockServerTimestampFieldValue);
+    assert.equal('apaMode' in normalized, false);
+    assert.equal('extraUndefined' in (normalized.blocks as Array<Record<string, unknown>>)[0], false);
+    assert.deepEqual(
+      validatePostDocumentAgainstRules(normalized, {
+        isCreate: false,
+        isAdmin: true,
+        uid: 'uid_admin_1',
       }),
       []
     );

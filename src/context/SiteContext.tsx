@@ -1,6 +1,8 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where } from 'firebase/firestore';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, Timestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { maybeNotifyNewPost } from '../lib/notifications';
+import { loadFeedCache, saveFeedCache } from '../lib/offlineCache';
 import { isTimestampLike } from '../lib/postValidation';
 import { DEFAULT_ADMIN_IDENTITIES, DEFAULT_CATEGORIES, DEFAULT_HOMEPAGE_SECTIONS, DEFAULT_SITE_CONFIG } from '../lib/seedData';
 import { toDate, updateDynamicAppIcons } from '../lib/utils';
@@ -14,6 +16,8 @@ interface SiteContextValue {
   categories: Category[];
   seriesList: SeriesItem[];
   publishedPosts: Post[];
+  hasMorePublishedPosts: boolean;
+  loadMorePublishedPosts: () => void;
   myPosts: Post[];
   allPostsForAdmin: Post[];
   collaborators: CollaboratorPublic[];
@@ -64,7 +68,13 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(DEFAULT_SITE_CONFIG as SiteConfig);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES as Category[]);
   const [seriesList, setSeriesList] = useState<SeriesItem[]>([]);
-  const [publishedPosts, setPublishedPosts] = useState<Post[]>([]);
+  const [publishedPosts, setPublishedPosts] = useState<Post[]>(() => loadFeedCache());
+  const [postsLimit, setPostsLimit] = useState(24);
+  const [hasMorePublishedPosts, setHasMorePublishedPosts] = useState(false);
+  const [useOrderedPostsQuery, setUseOrderedPostsQuery] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return sessionStorage.getItem('revista_posts_unordered_fallback') !== '1';
+  });
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [allPostsForAdmin, setAllPostsForAdmin] = useState<Post[]>([]);
   const [collaborators, setCollaborators] = useState<CollaboratorPublic[]>([]);
@@ -72,7 +82,8 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     owner: { ...DEFAULT_ADMIN_IDENTITIES.owner },
     magazine: { ...DEFAULT_ADMIN_IDENTITIES.magazine },
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => loadFeedCache().length === 0);
+  const siteNameRef = useRef<string>(DEFAULT_SITE_CONFIG.siteName);
 
   const [isDark, setIsDark] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -120,6 +131,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const root = document.documentElement;
     root.style.setProperty('--editorial-primary', siteConfig.primaryColor || '#B91C1C');
     root.style.setProperty('--editorial-accent', siteConfig.accentColor || '#991B1B');
+    siteNameRef.current = siteConfig.siteName;
     document.title = `${siteConfig.siteName} – Periodismo Independiente y Crítico`;
     updateDynamicAppIcons(siteConfig.logoUrl, siteConfig.siteName, siteConfig.primaryColor);
   }, [siteConfig.primaryColor, siteConfig.accentColor, siteConfig.siteName, siteConfig.logoUrl]);
@@ -130,18 +142,9 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    let configSettled = false;
-    let postsSettled = false;
-
-    const markReadyIfSettled = () => {
-      if (configSettled && postsSettled) {
-        setLoading(false);
-      }
-    };
-
     const safetyTimer = setTimeout(() => {
       setLoading(false);
-    }, 2500);
+    }, 2200);
 
     const unsubConfig = onSnapshot(
       doc(db, 'site_config', 'main'),
@@ -156,13 +159,11 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           setSiteConfig(DEFAULT_SITE_CONFIG as SiteConfig);
         }
-        configSettled = true;
-        markReadyIfSettled();
+        setLoading(false);
       },
       (err) => {
         console.warn('site_config listener:', err);
-        configSettled = true;
-        markReadyIfSettled();
+        setLoading(false);
       }
     );
 
@@ -186,23 +187,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSeriesList(snap.docs.map((d) => d.data() as SeriesItem));
       },
       (err) => console.warn('series listener:', err)
-    );
-
-    const unsubPosts = onSnapshot(
-      query(collection(db, 'posts'), where('status', '==', 'published')),
-      (snap) => {
-        const list = snap.docs
-          .map((d) => d.data() as Post)
-          .sort((a, b) => toDate(b.publishedAt || b.createdAt).getTime() - toDate(a.publishedAt || a.createdAt).getTime());
-        setPublishedPosts(list);
-        postsSettled = true;
-        markReadyIfSettled();
-      },
-      (err) => {
-        console.warn('published posts listener:', err);
-        postsSettled = true;
-        markReadyIfSettled();
-      }
     );
 
     const unsubCollabs = onSnapshot(
@@ -235,10 +219,58 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubConfig();
       unsubCats();
       unsubSeries();
-      unsubPosts();
       unsubCollabs();
       unsubAdminIds();
     };
+  }, []);
+
+  useEffect(() => {
+    const baseQuery = useOrderedPostsQuery
+      ? query(
+          collection(db, 'posts'),
+          where('status', '==', 'published'),
+          orderBy('publishedAt', 'desc'),
+          limit(postsLimit + 1)
+        )
+      : query(collection(db, 'posts'), where('status', '==', 'published'), limit(postsLimit + 1));
+
+    const unsubPosts = onSnapshot(
+      baseQuery,
+      (snap) => {
+        const hasMore = snap.docs.length > postsLimit;
+        setHasMorePublishedPosts(hasMore);
+        const list = snap.docs
+          .slice(0, postsLimit)
+          .map((d) => d.data() as Post)
+          .sort((a, b) => toDate(b.publishedAt || b.createdAt).getTime() - toDate(a.publishedAt || a.createdAt).getTime());
+        setPublishedPosts(list);
+        saveFeedCache(list);
+        if (list[0]) {
+          void maybeNotifyNewPost(list[0], siteNameRef.current);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        const code = (err as { code?: string })?.code || '';
+        if (useOrderedPostsQuery && (code === 'failed-precondition' || String(err).toLowerCase().includes('index'))) {
+          try {
+            sessionStorage.setItem('revista_posts_unordered_fallback', '1');
+          } catch {
+            // Ignore restricted storage
+          }
+          setUseOrderedPostsQuery(false);
+          return;
+        }
+        console.warn('published posts listener:', err);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubPosts();
+  }, [postsLimit, useOrderedPostsQuery]);
+
+  const loadMorePublishedPosts = useCallback(() => {
+    setPostsLimit((prev) => prev + 24);
   }, []);
 
   useEffect(() => {
@@ -349,6 +381,8 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         categories,
         seriesList,
         publishedPosts,
+        hasMorePublishedPosts,
+        loadMorePublishedPosts,
         myPosts,
         allPostsForAdmin,
         collaborators,

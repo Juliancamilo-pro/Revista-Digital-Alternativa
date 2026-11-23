@@ -130,6 +130,8 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
                 src={post.authorAvatar || post.coverImage}
                 alt={`Retrato de ${post.authorName}`}
                 fallbackTitle={post.authorName}
+                width={96}
+                height={96}
                 allowInDataSaver
               />
             </div>
@@ -197,18 +199,20 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
           src={post.coverImage}
           alt={post.coverAlt || post.title}
           fallbackTitle={post.title}
+          width={800}
+          height={600}
           sensitive={post.sensitiveContent}
           sensitiveWarning={post.sensitiveWarning}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
         {FormatIcon && (
-          <div className="absolute bottom-3 left-3 z-10 rounded-full bg-[#111111]/90 text-white px-3 py-1 flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider">
+          <div className="absolute bottom-3 left-3 z-10 rounded bg-[#111111]/90 text-white px-2.5 py-1 flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider">
             <FormatIcon className="w-3.5 h-3.5 text-[var(--editorial-primary)]" aria-hidden="true" />
             <span>{formatLabel}</span>
           </div>
         )}
         {post.pinnedInFeed && (
-          <div className="absolute top-3 left-3 z-10 rounded-full bg-[#111111]/90 text-amber-300 px-2.5 py-1 flex items-center gap-1 text-[10px] font-display font-bold uppercase tracking-wider">
+          <div className="absolute top-3 left-3 z-10 rounded bg-[#111111]/90 text-amber-300 px-2.5 py-1 flex items-center gap-1 text-[10px] font-display font-bold uppercase tracking-wider">
             <Pin className="w-3 h-3" aria-hidden="true" />
             <span>Nota fijada</span>
           </div>

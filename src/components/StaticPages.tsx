@@ -26,6 +26,9 @@ export const AboutPage: React.FC = () => {
       <h1 className="font-display text-4xl sm:text-5xl font-extrabold uppercase tracking-tight">
         Quiénes somos
       </h1>
+      <p className="font-display text-xs font-bold uppercase tracking-widest text-neutral-600 dark:text-neutral-400">
+        Hecho en el Tolima, para Colombia
+      </p>
       {hasAbout ? (
         <div className="space-y-4 text-lg leading-relaxed whitespace-pre-line font-editorial">
           {siteConfig.aboutText}

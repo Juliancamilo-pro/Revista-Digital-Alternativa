@@ -474,7 +474,7 @@ service cloud.firestore {
           'categoryId', 'categoryName', 'categorySlug', 'seriesId', 'seriesTitle', 'tags',
           'authorId', 'authorProfileId', 'authorIdentityType', 'authorVerified', 'authorName', 'authorAvatar', 'authorOutletType',
           'coverImage', 'coverAlt', 'coverCredit', 'coverLayout', 'headerStyle', 'accentColor', 'paragraphIndent',
-          'apaMode', 'apaReferences', 'showTableOfContents',
+          'showTableOfContents',
           'blocks', 'galleryItems', 'corrections',
           'keyPoints', 'sensitiveContent', 'sensitiveWarning', 'sources', 'seoDescription', 'commentsEnabled',
           'mediaUrl', 'mediaSourceType', 'mediaChapters', 'mediaTranscript', 'mediaSubtitlesUrl',
@@ -514,8 +514,6 @@ service cloud.firestore {
         (!('headerStyle' in data) || data.headerStyle in ['classic', 'editorial', 'minimal']) &&
         isOptionalString(data, 'accentColor', 20) &&
         isOptionalBool(data, 'paragraphIndent') &&
-        isOptionalBool(data, 'apaMode') &&
-        (!('apaReferences' in data) || (data.apaReferences is list && data.apaReferences.size() <= 60)) &&
         isOptionalBool(data, 'showTableOfContents') &&
         data.blocks is list && data.blocks.size() <= 80 &&
         (!('galleryItems' in data) || (data.galleryItems is list && data.galleryItems.size() <= 30)) &&
@@ -554,7 +552,7 @@ service cloud.firestore {
           'categoryId', 'categoryName', 'categorySlug', 'seriesId', 'seriesTitle', 'tags',
           'authorId', 'authorProfileId', 'authorIdentityType', 'authorVerified', 'authorName', 'authorAvatar', 'authorOutletType',
           'coverImage', 'coverAlt', 'coverCredit', 'coverLayout', 'headerStyle', 'accentColor', 'paragraphIndent',
-          'apaMode', 'apaReferences', 'showTableOfContents',
+          'showTableOfContents',
           'blocks', 'galleryItems', 'corrections',
           'keyPoints', 'sensitiveContent', 'sensitiveWarning', 'sources', 'seoDescription', 'commentsEnabled',
           'mediaUrl', 'mediaSourceType', 'mediaChapters', 'mediaTranscript', 'mediaSubtitlesUrl',
@@ -824,7 +822,7 @@ service cloud.firestore {
 
     // Public Opt-In Collaborator & Media Outlet Profiles (NEVER birthYear or private consent)
     match /collaborators_public/{userId} {
-      allow get: if isValidId(userId) && (resource.data.status == 'active' || isOwner(userId) || isAdmin());
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin() || (resource != null && resource.data.status == 'active'));
       allow list: if resource.data.status == 'active' || (isSignedIn() && resource.data.uid == request.auth.uid) || isAdmin();
       allow create: if isValidId(userId) &&
         isSignedIn() &&
@@ -929,9 +927,11 @@ service cloud.firestore {
     // Posts (Articles, Galleries, Videos, Audio, Infographics, Documents)
     match /posts/{postId} {
       allow get: if isValidId(postId) && (
-        resource.data.status == 'published' ||
-        (isSignedIn() && resource.data.authorId == request.auth.uid) ||
-        isAdmin()
+        isAdmin() ||
+        (resource != null && (
+          resource.data.status == 'published' ||
+          (isSignedIn() && resource.data.authorId == request.auth.uid)
+        ))
       );
       allow list: if resource.data.status == 'published' ||
         (isSignedIn() && resource.data.authorId == request.auth.uid) ||
@@ -1047,10 +1047,12 @@ service cloud.firestore {
     // Comments
     match /comments/{commentId} {
       allow get: if isValidId(commentId) && (
-        resource.data.status == 'approved' ||
         isAdmin() ||
-        (isSignedIn() && resource.data.postAuthorId == request.auth.uid) ||
-        (isSignedIn() && resource.data.authorId == request.auth.uid)
+        (resource != null && (
+          resource.data.status == 'approved' ||
+          (isSignedIn() && resource.data.postAuthorId == request.auth.uid) ||
+          (isSignedIn() && resource.data.authorId == request.auth.uid)
+        ))
       );
       allow list: if resource.data.status == 'approved' ||
         isAdmin() ||

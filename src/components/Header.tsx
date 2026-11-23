@@ -19,6 +19,7 @@ import { useSite } from '../context/SiteContext';
 import { parseMediaUrlMeta, sanitizeExternalUrl } from '../lib/utils';
 import { DataSaverMode } from '../types/editorial';
 import { PWAInstallButton } from './PWAInstallButton';
+import { TricolorHairline } from './TolimaAccents';
 
 export const Header: React.FC = () => {
   const {
@@ -66,7 +67,7 @@ export const Header: React.FC = () => {
 
   if (readingMode) return null;
 
-  const primaryCategories = categories.filter((c) => !c.parentId).slice(0, 5);
+  const primaryCategories = categories.filter((c) => !c.parentId).slice(0, 4);
   const customLogo = parseMediaUrlMeta(sanitizeExternalUrl(siteConfig.logoUrl || '')).cleanUrl;
   const logoSrc = customLogo || '/brand-mark.png';
 
@@ -85,7 +86,8 @@ export const Header: React.FC = () => {
 
   return (
     <header className="sticky top-0 z-40 border-b border-neutral-200/80 dark:border-neutral-800/80 bg-[#F8F6F1]/90 dark:bg-[#0D0D0D]/90 backdrop-blur-md">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 lg:gap-5 xl:gap-8">
+      <TricolorHairline />
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 min-h-14 sm:min-h-16 py-1.5 sm:py-0 flex items-center justify-between gap-2 sm:gap-4 lg:gap-5 xl:gap-8">
         {/* Zone 1: Brand Wordmark */}
         <a
           href="/"
@@ -98,10 +100,12 @@ export const Header: React.FC = () => {
           <img
             src={logoSrc}
             alt={siteConfig.siteName}
+            width={36}
+            height={36}
             referrerPolicy="no-referrer"
             className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg object-contain bg-white p-0.5 border border-neutral-200 dark:border-neutral-700 shadow-xs"
           />
-          <span className="font-display text-[13.5px] sm:text-lg xl:text-xl font-extrabold uppercase tracking-tight leading-[1.05] text-[#111111] dark:text-[#F4F1EA] group-hover:text-[var(--editorial-primary)] transition-colors sm:whitespace-nowrap">
+          <span className="font-display text-[13px] sm:text-lg xl:text-xl font-extrabold uppercase tracking-tight leading-tight text-[#111111] dark:text-[#F4F1EA] group-hover:text-[var(--editorial-primary)] transition-colors whitespace-normal sm:whitespace-nowrap">
             {siteConfig.siteName}
           </span>
         </a>
@@ -129,6 +133,21 @@ export const Header: React.FC = () => {
               </a>
             );
           })}
+
+          <a
+            href="/tolima"
+            onClick={(e) => {
+              e.preventDefault();
+              handleNav('/tolima');
+            }}
+            className={`whitespace-nowrap shrink-0 py-1 border-b-2 transition-colors ${
+              currentPath === '/tolima'
+                ? 'border-[var(--editorial-primary)] text-[var(--editorial-primary)]'
+                : 'border-transparent text-neutral-700 dark:text-neutral-300 hover:text-black dark:hover:text-white hover:border-neutral-400'
+            }`}
+          >
+            Tolima
+          </a>
 
           <div className="relative" ref={sectionsRef}>
             <button
@@ -167,6 +186,16 @@ export const Header: React.FC = () => {
                   >
                     <Users className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Conozcan a nuestros colaboradores</span>
+                  </a>
+                  <a
+                    href="/tolima"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleNav('/tolima');
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-sm font-display font-semibold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 block"
+                  >
+                    Tolima, Capital Musical
                   </a>
                   <a
                     href="/como-trabajamos"
@@ -388,8 +417,15 @@ export const Header: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
               type="button"
+              onClick={() => handleNav('/tolima')}
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
+            >
+              <span>Tolima</span>
+            </button>
+            <button
+              type="button"
               onClick={() => handleNav('/colaboradores')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
             >
               <Users className="w-3.5 h-3.5 text-[var(--editorial-primary)]" aria-hidden="true" />
               <span>Colaboradores</span>
@@ -397,14 +433,14 @@ export const Header: React.FC = () => {
             <button
               type="button"
               onClick={() => handleNav('/como-trabajamos')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
             >
               <span>Cómo trabajamos</span>
             </button>
             <button
               type="button"
               onClick={() => handleNav('/unete')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
             >
               <span>Únete como colaborador</span>
             </button>

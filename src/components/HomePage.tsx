@@ -1,17 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Camera, Headphones, Play, TrendingUp, Users, Zap } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useDataSaver } from '../context/DataSaverContext';
 import { useSite } from '../context/SiteContext';
 import { formatDateEs, getEditorialKindLabel } from '../lib/utils';
 import { HomepageSectionConfig, Post, PostType } from '../types/editorial';
 import { ArticleCard } from './ArticleCard';
 import { EditorialImage } from './EditorialImage';
+import { TricolorHairline } from './TolimaAccents';
 import { VerifiedBadge } from './VerifiedBadge';
 
 export const HomePage: React.FC = () => {
   const {
     siteConfig,
     publishedPosts,
+    hasMorePublishedPosts,
+    loadMorePublishedPosts,
     categories,
     seriesList,
     collaborators,
@@ -82,6 +86,16 @@ export const HomePage: React.FC = () => {
   const galleryPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'gallery').slice(0, 3), [publishedPosts]);
   const videoPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'video').slice(0, 3), [publishedPosts]);
   const audioPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'audio').slice(0, 3), [publishedPosts]);
+
+  const regionalHighlightPosts = useMemo(() => {
+    const terms = ['tolima', 'ibague', 'ibagué', 'tolimense', 'cultura', 'colombia'];
+    return publishedPosts
+      .filter((p) => {
+        const hay = `${p.categorySlug} ${p.categoryName} ${p.title} ${p.subtitle || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
+        return terms.some((t) => hay.includes(t));
+      })
+      .slice(0, 3);
+  }, [publishedPosts]);
 
   const directoryCards = useMemo(() => {
     const cards: Array<{
@@ -178,9 +192,9 @@ export const HomePage: React.FC = () => {
         <section className="relative overflow-hidden rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-gradient-to-br from-[#141414] via-[#1C0B0B] to-[#0D0D0D] text-[#F4F1EA] px-6 py-16 sm:px-14 sm:py-24 shadow-2xl">
           <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[var(--editorial-primary)]/20 blur-3xl pointer-events-none" />
           <div className="relative max-w-2xl space-y-6">
-            <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/10 border border-white/15 font-display text-xs font-bold uppercase tracking-widest text-[#FCA5A5]">
-              Edición en preparación
-            </span>
+            <p className="font-display text-xs font-bold uppercase tracking-widest text-[#FCA5A5]">
+              Edición en preparación · Hecho en el Tolima, para Colombia
+            </p>
             <h1 className="font-display text-4xl sm:text-6xl lg:text-7xl font-extrabold uppercase tracking-tight leading-[0.98] headline-balance text-white">
               Muy pronto
             </h1>
@@ -248,6 +262,8 @@ export const HomePage: React.FC = () => {
                 src={heroPost.coverImage}
                 alt={heroPost.coverAlt || heroPost.title}
                 fallbackTitle={heroPost.title}
+                width={1200}
+                height={800}
                 priority
                 sensitive={heroPost.sensitiveContent}
                 wrapperClassName="absolute inset-0"
@@ -256,23 +272,27 @@ export const HomePage: React.FC = () => {
               <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-black/20" />
 
               {heroPost.coverCredit && (
-                <span className="absolute top-4 right-5 px-3 py-1 rounded-full bg-black/55 backdrop-blur-xs text-[11px] text-white/85 font-display tracking-wide">
+                <span className="absolute top-4 right-5 px-2.5 py-1 rounded bg-black/65 text-[11px] text-white/90 font-display tracking-wide">
                   {heroPost.coverCredit}
                 </span>
               )}
 
               <div className="relative z-10 w-full p-6 sm:p-10 lg:p-14 max-w-4xl space-y-4 text-white">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest">
-                  <span className="px-3 py-1 rounded-full bg-[var(--editorial-primary)] text-white">
+                  <span className="px-2.5 py-0.5 rounded bg-[var(--editorial-primary)] text-white">
                     {heroPost.categoryName}
                   </span>
-                  <span className="px-3 py-1 rounded-full bg-white/15 backdrop-blur-xs text-white/95">
+                  <span aria-hidden="true" className="text-white/50">·</span>
+                  <span className="text-white/90">
                     {getEditorialKindLabel(heroPost.editorialKind)}
                   </span>
                   {heroPost.seriesTitle && (
-                    <span className="px-3 py-1 rounded-full bg-black/50 border border-white/20 text-neutral-200">
-                      {heroPost.seriesTitle}
-                    </span>
+                    <>
+                      <span aria-hidden="true" className="text-white/50">·</span>
+                      <span className="text-neutral-200">
+                        {heroPost.seriesTitle}
+                      </span>
+                    </>
                   )}
                 </div>
 
@@ -378,7 +398,14 @@ export const HomePage: React.FC = () => {
       case 'featured': {
         if (featuredPosts.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5">
+          <motion.section
+            key={section.id}
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.08 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-5"
+          >
             <div className="flex items-baseline justify-between border-b border-neutral-300 dark:border-neutral-800 pb-2">
               <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight">
                 {section.title}
@@ -389,7 +416,7 @@ export const HomePage: React.FC = () => {
                 <ArticleCard key={post.id} post={post} />
               ))}
             </div>
-          </section>
+          </motion.section>
         );
       }
 
@@ -398,7 +425,7 @@ export const HomePage: React.FC = () => {
         return (
           <section key={section.id} className="rounded-2xl border border-[var(--editorial-primary)]/40 bg-white dark:bg-[#141414] p-5 sm:p-6 shadow-sm">
             <div className="flex flex-wrap items-center gap-2.5 mb-4">
-              <span className="px-3 py-1 rounded-full bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest whitespace-nowrap shrink-0">
+              <span className="px-2.5 py-0.5 rounded bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest whitespace-nowrap shrink-0">
                 {section.title}
               </span>
               <span className="text-xs text-neutral-600 dark:text-neutral-400">
@@ -522,6 +549,8 @@ export const HomePage: React.FC = () => {
                       src={ser.coverImage}
                       alt={ser.title}
                       fallbackTitle={ser.title}
+                      width={600}
+                      height={450}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                   </div>
@@ -667,6 +696,8 @@ export const HomePage: React.FC = () => {
                         src={item.avatarUrl}
                         alt={item.name}
                         fallbackTitle={item.name}
+                        width={96}
+                        height={96}
                         allowInDataSaver
                       />
                     ) : (
@@ -696,15 +727,23 @@ export const HomePage: React.FC = () => {
 
       case 'categories_feed': {
         if (publishedPosts.length === 0) return null;
+        const canLoadMore = visibleCount < filteredFeed.length || hasMorePublishedPosts;
         return (
-          <section key={section.id} className="space-y-6 pt-4 border-t border-neutral-300 dark:border-neutral-800">
+          <motion.section
+            key={section.id}
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.05 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6 pt-4 border-t border-neutral-300 dark:border-neutral-800"
+          >
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <h2 className="font-display text-3xl font-extrabold uppercase tracking-tight">
                 {section.title}
               </h2>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex flex-wrap gap-1 rounded-full border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] p-1 text-xs font-display font-bold uppercase tracking-wider">
+                <div className="inline-flex flex-wrap gap-1 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] p-1 text-xs font-display font-bold uppercase tracking-wider">
                   {(
                     [
                       ['all', 'Todo'],
@@ -720,7 +759,7 @@ export const HomePage: React.FC = () => {
                       key={val}
                       type="button"
                       onClick={() => setFeedTypeFilter(val)}
-                      className={`px-3 py-1.5 rounded-full cursor-pointer transition-colors ${
+                      className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
                         feedTypeFilter === val
                           ? 'bg-[var(--editorial-primary)] text-white'
                           : 'text-neutral-700 dark:text-neutral-300 hover:text-black dark:hover:text-white'
@@ -735,7 +774,7 @@ export const HomePage: React.FC = () => {
                   aria-label="Filtrar por categoría"
                   value={feedCatFilter}
                   onChange={(e) => setFeedCatFilter(e.target.value)}
-                  className="px-4 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] text-xs font-display font-bold uppercase tracking-wider"
+                  className="px-4 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] text-xs font-display font-bold uppercase tracking-wider"
                 >
                   <option value="all">Todas las categorías</option>
                   {categories.map((cat) => (
@@ -761,13 +800,17 @@ export const HomePage: React.FC = () => {
                   ))}
                 </div>
 
-                {visibleCount < filteredFeed.length && (
+                {canLoadMore && (
                   <div className="text-center pt-4">
                     <button
                       type="button"
                       onClick={() => {
                         setHasExpandedFeed(true);
-                        setVisibleCount((v) => v + 6);
+                        const nextVisible = visibleCount + 6;
+                        setVisibleCount(nextVisible);
+                        if (nextVisible >= filteredFeed.length && hasMorePublishedPosts) {
+                          loadMorePublishedPosts();
+                        }
                       }}
                       className="px-6 py-3 rounded-full border-2 border-[#111111] dark:border-neutral-500 font-display font-bold uppercase tracking-wider text-sm hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors cursor-pointer"
                     >
@@ -777,7 +820,7 @@ export const HomePage: React.FC = () => {
                 )}
               </>
             )}
-          </section>
+          </motion.section>
         );
       }
 
@@ -790,7 +833,7 @@ export const HomePage: React.FC = () => {
     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-12">
       {/* Cinta deslizante "Última hora" cuando existan notas marcadas como breaking */}
       {breakingPosts.length > 0 && (
-        <div className="rounded-full border border-[var(--editorial-primary)]/40 bg-[#111111] text-white overflow-hidden flex items-center shadow-sm">
+        <div className="rounded-xl border border-[var(--editorial-primary)]/40 bg-[#111111] text-white overflow-hidden flex items-center shadow-sm">
           <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest shrink-0">
             <Zap className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Última hora</span>
@@ -811,7 +854,7 @@ export const HomePage: React.FC = () => {
                     {post.categoryName}
                   </span>
                   <span>{post.title}</span>
-                  <span aria-hidden="true" className="text-neutral-600">•</span>
+                  <span aria-hidden="true" className="text-neutral-600">·</span>
                 </a>
               ))}
             </div>
@@ -819,7 +862,91 @@ export const HomePage: React.FC = () => {
         </div>
       )}
 
-      {orderedSections.map((sec) => renderSection(sec))}
+      {orderedSections.map((sec) => {
+        if (sec.type === 'categories_feed') {
+          return (
+            <React.Fragment key={sec.id}>
+              {/* Vitrina regional: Tolima, Colombia, Cultura, Opinión y Multimedia */}
+              <motion.section
+                initial={{ opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.1 }}
+                transition={{ duration: 0.3 }}
+                className="tolima-weave-bg rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm"
+              >
+                <TricolorHairline />
+                <div className="p-6 sm:p-8 space-y-6">
+                  <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+                    <div className="space-y-2 max-w-2xl">
+                      <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                        Identidad regional · Hecho en el Tolima, para Colombia
+                      </p>
+                      <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
+                        Tolima, Capital Musical de Colombia
+                      </h2>
+                      <p className="font-editorial text-sm sm:text-base text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                        Territorio, cultura, memoria sonora, opinión pública y formatos multimedia desde el corazón andino del país.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/tolima')}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                      >
+                        <span>Especial Tolima</span>
+                        <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                      {(
+                        [
+                          ['/categoria/colombia', 'Colombia'],
+                          ['/categoria/cultura', 'Cultura'],
+                          ['/categoria/opinion', 'Opinión'],
+                          ['/categoria/video', 'Multimedia'],
+                        ] as const
+                      ).map(([path, label]) => (
+                        <button
+                          key={path}
+                          type="button"
+                          onClick={() => navigate(path)}
+                          className="px-3.5 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-[var(--editorial-primary)] font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {regionalHighlightPosts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {regionalHighlightPosts.map((post) => (
+                        <ArticleCard key={post.id} post={post} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-[#F8F6F1]/80 dark:bg-[#191919]/80 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <p className="text-sm text-neutral-700 dark:text-neutral-300">
+                        Explora nuestra ruta especial del departamento: música tradicional, gastronomía tolimense y periodismo territorial.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/tolima')}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-400 dark:border-neutral-600 font-display text-xs font-bold uppercase tracking-wider hover:border-[var(--editorial-primary)] cursor-pointer"
+                      >
+                        <span>Visitar página Tolima</span>
+                        <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.section>
+
+              {renderSection(sec)}
+            </React.Fragment>
+          );
+        }
+        return renderSection(sec);
+      })}
     </main>
   );
 };

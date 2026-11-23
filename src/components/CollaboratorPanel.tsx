@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import {
   collection,
   deleteDoc,
@@ -44,9 +44,10 @@ import {
   PoliticalAffiliationChoice,
   Post,
 } from '../types/editorial';
-import { BlockEditor } from './BlockEditor';
 import { EditorialImage } from './EditorialImage';
 import { VerifiedBadge } from './VerifiedBadge';
+
+const BlockEditor = lazy(() => import('./BlockEditor').then((m) => ({ default: m.BlockEditor })));
 
 type CollabTab = 'posts' | 'comments' | 'profile' | 'stats';
 
@@ -532,11 +533,13 @@ export const CollaboratorPanel: React.FC = () => {
   if (editingPost !== undefined) {
     return (
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <BlockEditor
-          initialPost={editingPost}
-          onSaved={() => setEditingPost(undefined)}
-          onCancel={() => setEditingPost(undefined)}
-        />
+        <Suspense fallback={<div className="py-12 text-center text-sm text-neutral-500">Cargando editor editorial...</div>}>
+          <BlockEditor
+            initialPost={editingPost}
+            onSaved={() => setEditingPost(undefined)}
+            onCancel={() => setEditingPost(undefined)}
+          />
+        </Suspense>
       </main>
     );
   }

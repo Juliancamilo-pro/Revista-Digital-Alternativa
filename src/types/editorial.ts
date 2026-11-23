@@ -340,17 +340,6 @@ export interface GalleryItem {
   credit: string;
 }
 
-export interface ApaReference {
-  id: string;
-  author: string;
-  year: string;
-  title: string;
-  publisher: string;
-  url?: string;
-  accessDate?: string;
-  formatted?: string;
-}
-
 export interface MediaChapter {
   id: string;
   timeSec: number;
@@ -425,8 +414,6 @@ export interface Post {
   headerStyle?: HeaderStyleVariant;
   accentColor?: string;
   paragraphIndent?: boolean;
-  apaMode?: boolean;
-  apaReferences?: ApaReference[];
   showTableOfContents?: boolean;
   blocks: ContentBlock[];
   galleryItems?: GalleryItem[];

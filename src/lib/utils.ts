@@ -1,6 +1,10 @@
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { storage } from './firebase';
+import { inspectMediaUrl, type MediaProvider } from './mediaEmbeds';
+import { stripUndefinedDeep } from './postValidation';
 import { ContentBlock, Post, SiteConfig } from '../types/editorial';
+
+export { stripUndefinedDeep };
 
 export type MediaSlot =
   | 'cover'
@@ -21,8 +25,8 @@ export interface MediaSlotPreset {
 }
 
 export const MEDIA_SLOT_PRESETS: Record<MediaSlot, MediaSlotPreset> = {
-  cover: { maxDimension: 1440, quality: 0.82, label: 'Portada (1440px WebP)' },
-  inline: { maxDimension: 1200, quality: 0.8, label: 'Imagen en artículo (1200px WebP)' },
+  cover: { maxDimension: 1600, quality: 0.82, label: 'Portada (1600px WebP)' },
+  inline: { maxDimension: 1200, quality: 0.82, label: 'Imagen en artículo (1200px WebP)' },
   gallery: { maxDimension: 1400, quality: 0.82, label: 'Galería documental (1400px WebP)' },
   avatar: { maxDimension: 512, quality: 0.84, squareCrop: true, label: 'Foto de perfil 1:1 (512px)' },
   logo: { maxDimension: 640, quality: 0.88, label: 'Logotipo (640px)' },
@@ -394,9 +398,52 @@ export async function optimizeImageFile(
   });
 }
 
+const MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_MEDIA_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+function runSingleStorageUpload(
+  storagePath: string,
+  payloadBlob: Blob,
+  contentType: string,
+  timeoutMs: number,
+  onProgress?: (pct: number) => void
+): Promise<string> {
+  const storageRef = ref(storage, storagePath);
+  return new Promise<string>((resolve, reject) => {
+    const task = uploadBytesResumable(storageRef, payloadBlob, { contentType });
+    const timer = setTimeout(() => {
+      task.cancel();
+      reject(new Error('storage-timeout'));
+    }, timeoutMs);
+    task.on(
+      'state_changed',
+      (snap) => {
+        if (onProgress && snap.totalBytes > 0) {
+          const pct = Math.round(22 + (snap.bytesTransferred / snap.totalBytes) * 78);
+          onProgress(Math.min(99, pct));
+        }
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+      async () => {
+        clearTimeout(timer);
+        try {
+          const dl = await getDownloadURL(task.snapshot.ref);
+          if (onProgress) onProgress(100);
+          resolve(dl);
+        } catch (e) {
+          reject(e);
+        }
+      }
+    );
+  });
+}
+
 /**
- * Sube activos optimizados a Firebase Storage con progreso en tiempo real (0..100%)
- * y detección automática de punto focal + miniatura borrosa progresiva.
+ * Sube activos optimizados a Firebase Storage con validación previa, hasta 3 reintentos,
+ * progreso en tiempo real (0..100%) y detección automática de punto focal + miniatura WebP.
  * Para imágenes menores a 350 KB, incluye respaldo compacto si Storage aún no tiene reglas habilitadas.
  */
 export async function uploadMediaAsset(
@@ -406,6 +453,19 @@ export async function uploadMediaAsset(
   slot: MediaSlot = 'inline'
 ): Promise<{ url: string; cleanUrl: string; blurDataUrl?: string; focalPoint: FocalPoint; info: string }> {
   const isImage = file.type.startsWith('image/');
+  const isVideo = file.type.startsWith('video/');
+  const isAudio = file.type.startsWith('audio/');
+
+  if (!isImage && !isVideo && !isAudio) {
+    throw new Error('Tipo de archivo no compatible. Sube una imagen, audio o video válido.');
+  }
+  if (isImage && file.size > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error('La imagen supera el límite de 25 MB antes de compresión.');
+  }
+  if (!isImage && file.size > MAX_MEDIA_UPLOAD_BYTES) {
+    throw new Error('El archivo multimedia supera el límite máximo permitido de 50 MB.');
+  }
+
   let payloadBlob: Blob = file;
   let fallbackDataUrl = '';
   let blurDataUrl = '';
@@ -425,79 +485,69 @@ export async function uploadMediaAsset(
     if (onProgress) onProgress(22);
   }
 
-  const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-  const storageRef = ref(storage, `${folder}/${safeName}`);
+  const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const ext = isImage ? 'webp' : file.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'bin';
+  const safeName = `${Date.now()}_${baseName}.${ext}`;
+  const storagePath = `${folder}/${safeName}`;
+  const contentType = isImage ? 'image/webp' : file.type || 'application/octet-stream';
+  const timeoutMs = isImage ? 18000 : 45000;
 
-  try {
-    const cleanUrl = await new Promise<string>((resolve, reject) => {
-      const task = uploadBytesResumable(storageRef, payloadBlob, {
-        contentType: isImage ? 'image/webp' : file.type || 'application/octet-stream',
-      });
-      const timer = setTimeout(() => {
-        task.cancel();
-        reject(new Error('storage-timeout'));
-      }, 15000);
-      task.on(
-        'state_changed',
-        (snap) => {
-          if (onProgress && snap.totalBytes > 0) {
-            const pct = Math.round(22 + (snap.bytesTransferred / snap.totalBytes) * 78);
-            onProgress(Math.min(99, pct));
-          }
-        },
-        (err) => {
-          clearTimeout(timer);
-          reject(err);
-        },
-        async () => {
-          clearTimeout(timer);
-          try {
-            const dl = await getDownloadURL(task.snapshot.ref);
-            if (onProgress) onProgress(100);
-            resolve(dl);
-          } catch (e) {
-            reject(e);
-          }
-        }
-      );
-    });
-    const url = isImage
-      ? encodeMediaUrlWithMeta(cleanUrl, { fpX: focalPoint.x, fpY: focalPoint.y, blur: blurDataUrl })
-      : cleanUrl;
-    return { url, cleanUrl, blurDataUrl, focalPoint, info: optimizationNote || 'Subido a Firebase Storage' };
-  } catch {
-    if (isImage && fallbackDataUrl) {
-      let compact = fallbackDataUrl;
-      let compactBlur = blurDataUrl;
-      if (compact.length >= 340000) {
-        const tighter = await optimizeImageFile(file, {
-          slot,
-          maxDimension: Math.min(960, MEDIA_SLOT_PRESETS[slot].maxDimension),
-          quality: 0.65,
-        });
-        compact = tighter.dataUrl;
-        compactBlur = tighter.blurDataUrl;
+  let lastError: unknown = null;
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const cleanUrl = await runSingleStorageUpload(storagePath, payloadBlob, contentType, timeoutMs, onProgress);
+      const url = isImage
+        ? encodeMediaUrlWithMeta(cleanUrl, { fpX: focalPoint.x, fpY: focalPoint.y, blur: blurDataUrl })
+        : cleanUrl;
+      return { url, cleanUrl, blurDataUrl, focalPoint, info: optimizationNote || 'Subido a Firebase Storage' };
+    } catch (err) {
+      lastError = err;
+      const errCode = (err as { code?: string })?.code || '';
+      if (errCode === 'storage/unauthorized' || errCode === 'storage/canceled') {
+        break;
       }
-      const urlWithMeta = encodeMediaUrlWithMeta(compact, {
-        fpX: focalPoint.x,
-        fpY: focalPoint.y,
-        blur: compactBlur,
-      });
-      if (urlWithMeta.length < 395000) {
-        if (onProgress) onProgress(100);
-        return {
-          url: urlWithMeta,
-          cleanUrl: compact,
-          blurDataUrl: compactBlur,
-          focalPoint,
-          info: `${optimizationNote || 'Imagen comprimida'} · Guardada en formato compacto`,
-        };
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, attempt * 450));
       }
     }
-    throw new Error(
-      'No se pudo subir a Firebase Storage. Revisa las reglas de Storage o usa una URL externa directa.'
-    );
   }
+
+  if (isImage && fallbackDataUrl) {
+    let compact = fallbackDataUrl;
+    let compactBlur = blurDataUrl;
+    if (compact.length >= 340000) {
+      const tighter = await optimizeImageFile(file, {
+        slot,
+        maxDimension: Math.min(960, MEDIA_SLOT_PRESETS[slot].maxDimension),
+        quality: 0.65,
+      });
+      compact = tighter.dataUrl;
+      compactBlur = tighter.blurDataUrl;
+    }
+    const urlWithMeta = encodeMediaUrlWithMeta(compact, {
+      fpX: focalPoint.x,
+      fpY: focalPoint.y,
+      blur: compactBlur,
+    });
+    if (urlWithMeta.length < 395000) {
+      if (onProgress) onProgress(100);
+      return {
+        url: urlWithMeta,
+        cleanUrl: compact,
+        blurDataUrl: compactBlur,
+        focalPoint,
+        info: `${optimizationNote || 'Imagen comprimida'} · Guardada en formato compacto`,
+      };
+    }
+  }
+
+  const msg = (lastError as Error)?.message;
+  throw new Error(
+    msg && msg !== 'storage-timeout'
+      ? `No se pudo subir a Firebase Storage (${msg}). Revisa las reglas de Storage o intenta de nuevo.`
+      : 'No se pudo subir a Firebase Storage tras varios intentos. Revisa tu conexión o las reglas de Storage.'
+  );
 }
 
 export async function uploadDocumentAsset(
@@ -595,86 +645,29 @@ export async function uploadSubtitleAsset(
 
 export function getEmbedUrl(
   url: string,
-  startSeconds?: number
+  startSeconds?: number,
+  kindHint?: 'video' | 'audio' | 'document' | 'social'
 ): {
   kind: 'iframe' | 'video' | 'audio' | 'link';
   src: string;
-  provider?: 'youtube' | 'vimeo' | 'spotify' | 'soundcloud' | 'direct' | 'other';
+  provider?: MediaProvider;
+  platformLabel?: string;
+  thumbnailUrl?: string;
+  previewIframeUrl?: string;
+  warning?: string;
+  errorReason?: string;
 } {
-  const trimmed = (url || '').trim();
-  if (!trimmed) return { kind: 'link', src: '' };
-  try {
-    const parsed = new URL(trimmed);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return { kind: 'link', src: '' };
-    }
-    if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
-      let vid = '';
-      if (parsed.hostname.includes('youtu.be')) {
-        vid = parsed.pathname.slice(1).split('/')[0];
-      } else if (parsed.pathname.includes('/live/')) {
-        vid = parsed.pathname.split('/live/')[1]?.split('/')[0] || '';
-      } else if (parsed.pathname.includes('/embed/')) {
-        vid = parsed.pathname.split('/embed/')[1]?.split('/')[0] || '';
-      } else if (parsed.pathname.includes('/shorts/')) {
-        vid = parsed.pathname.split('/shorts/')[1]?.split('/')[0] || '';
-      } else {
-        vid = parsed.searchParams.get('v') || '';
-      }
-      if (vid) {
-        const startParam =
-          typeof startSeconds === 'number' && startSeconds > 0 ? `&start=${Math.floor(startSeconds)}` : '';
-        return {
-          kind: 'iframe',
-          src: `https://www.youtube.com/embed/${vid}?rel=0${startParam}`,
-          provider: 'youtube',
-        };
-      }
-    }
-    if (parsed.hostname.includes('vimeo.com')) {
-      const vid = parsed.pathname.split('/').filter(Boolean).pop() || '';
-      if (vid && /^\d+$/.test(vid)) {
-        const hashTime =
-          typeof startSeconds === 'number' && startSeconds > 0 ? `#t=${Math.floor(startSeconds)}s` : '';
-        return { kind: 'iframe', src: `https://player.vimeo.com/video/${vid}${hashTime}`, provider: 'vimeo' };
-      }
-    }
-    if (parsed.hostname.includes('open.spotify.com')) {
-      const parts = parsed.pathname.split('/').filter(Boolean);
-      const kindSeg = parts[0];
-      const itemId = parts[1];
-      if (kindSeg && itemId && ['episode', 'show', 'track', 'playlist', 'album'].includes(kindSeg)) {
-        return {
-          kind: 'iframe',
-          src: `https://open.spotify.com/embed/${kindSeg}/${itemId}`,
-          provider: 'spotify',
-        };
-      }
-    }
-    if (parsed.hostname.includes('soundcloud.com')) {
-      return {
-        kind: 'iframe',
-        src: `https://w.soundcloud.com/player/?url=${encodeURIComponent(trimmed)}&color=%23B91C1C&auto_play=false&show_teaser=true`,
-        provider: 'soundcloud',
-      };
-    }
-    if (parsed.hostname.includes('facebook.com')) {
-      return {
-        kind: 'iframe',
-        src: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(trimmed)}&show_text=false`,
-        provider: 'other',
-      };
-    }
-    if (/\.(mp3|wav|m4a|aac|ogg|flac|opus)(\?.*)?$/i.test(parsed.pathname)) {
-      return { kind: 'audio', src: trimmed, provider: 'direct' };
-    }
-    if (/\.(mp4|webm|m3u8|mov)(\?.*)?$/i.test(parsed.pathname)) {
-      return { kind: 'video', src: trimmed, provider: 'direct' };
-    }
-    return { kind: 'link', src: trimmed, provider: 'other' };
-  } catch {
-    return { kind: 'link', src: '' };
-  }
+  const inspected = inspectMediaUrl(url, kindHint, startSeconds);
+  return {
+    kind: inspected.kind,
+    src: inspected.src,
+    provider: inspected.provider,
+    platformLabel: inspected.platformLabel,
+    thumbnailUrl: inspected.thumbnailUrl,
+    previewIframeUrl: inspected.previewIframeUrl,
+    warning: inspected.warning,
+    errorReason: inspected.errorReason,
+  };
 }
 
 export function sanitizeExternalUrl(url: string): string {
@@ -901,6 +894,7 @@ export function generateSitemapXml(posts: Post[], origin: string): string {
   const staticPaths = [
     '/',
     '/buscar',
+    '/tolima',
     '/colaboradores',
     '/unete',
     '/quienes-somos',
@@ -937,22 +931,6 @@ export function downloadTextFile(filename: string, content: string, mime = 'text
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-export function stripUndefinedDeep<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => stripUndefinedDeep(item)) as unknown as T;
-  }
-  if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (v !== undefined) {
-        out[k] = stripUndefinedDeep(v);
-      }
-    }
-    return out as T;
-  }
-  return value;
 }
 
 export function buildCleanDuplicatePostPayload(
@@ -1012,11 +990,7 @@ export function buildCleanDuplicatePostPayload(
       ? { accentColor: source.accentColor.slice(0, 20) }
       : {}),
     paragraphIndent: Boolean(source.paragraphIndent),
-    apaMode: Boolean(source.apaMode),
     showTableOfContents: Boolean(source.showTableOfContents),
-    ...(Array.isArray(source.apaReferences) && source.apaReferences.length > 0
-      ? { apaReferences: stripUndefinedDeep(source.apaReferences.slice(0, 60)) }
-      : {}),
     blocks: Array.isArray(source.blocks) ? stripUndefinedDeep(source.blocks.slice(0, 80)) : [],
     ...(Array.isArray(source.galleryItems) && source.galleryItems.length > 0
       ? { galleryItems: stripUndefinedDeep(source.galleryItems.slice(0, 30)) }

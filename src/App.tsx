@@ -1,36 +1,52 @@
-import React from 'react';
-import { WifiOff, X } from 'lucide-react';
-import { AdminPanel } from './components/AdminPanel';
-import { ArticleView } from './components/ArticleView';
+import React, { Suspense, lazy } from 'react';
+import { RefreshCw, WifiOff, X } from 'lucide-react';
+import { MotionConfig } from 'motion/react';
 import { AuthModal } from './components/AuthModal';
-import { CollaboratorPanel } from './components/CollaboratorPanel';
-import { CollaboratorsPage } from './components/CollaboratorsPage';
+import { EditorialPageSkeleton } from './components/EditorialSkeletons';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Footer } from './components/Footer';
 import { Header } from './components/Header';
-import { HomePage } from './components/HomePage';
-import { JoinCollaboratorPage } from './components/JoinCollaboratorPage';
+import { MiniAudioPlayer } from './components/MiniAudioPlayer';
 import { OfflineIndicator } from './components/PWAInstallButton';
-import { SearchPage } from './components/SearchPage';
-import {
-  AboutPage,
-  BookmarksPage,
-  CollaboratorProfilePage,
-  ContactRectificationPage,
-  FeedXmlPage,
-  HowWeWorkPage,
-  LegalPage,
-} from './components/StaticPages';
 import { AuthProvider } from './context/AuthContext';
 import { DataSaverProvider, useDataSaver } from './context/DataSaverContext';
 import { MediaPlayerProvider, useMediaPlayer } from './context/MediaPlayerContext';
 import { SiteProvider, useSite } from './context/SiteContext';
-import { MiniAudioPlayer } from './components/MiniAudioPlayer';
+import { usePWAUpdate } from './hooks/usePWAUpdate';
+
+const HomePage = lazy(() => import('./components/HomePage').then((m) => ({ default: m.HomePage })));
+const ArticleView = lazy(() => import('./components/ArticleView').then((m) => ({ default: m.ArticleView })));
+const SearchPage = lazy(() => import('./components/SearchPage').then((m) => ({ default: m.SearchPage })));
+const CollaboratorsPage = lazy(() =>
+  import('./components/CollaboratorsPage').then((m) => ({ default: m.CollaboratorsPage }))
+);
+const JoinCollaboratorPage = lazy(() =>
+  import('./components/JoinCollaboratorPage').then((m) => ({ default: m.JoinCollaboratorPage }))
+);
+const CollaboratorPanel = lazy(() =>
+  import('./components/CollaboratorPanel').then((m) => ({ default: m.CollaboratorPanel }))
+);
+const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
+const TolimaHeritagePage = lazy(() =>
+  import('./components/TolimaHeritagePage').then((m) => ({ default: m.TolimaHeritagePage }))
+);
+const AboutPage = lazy(() => import('./components/StaticPages').then((m) => ({ default: m.AboutPage })));
+const BookmarksPage = lazy(() => import('./components/StaticPages').then((m) => ({ default: m.BookmarksPage })));
+const CollaboratorProfilePage = lazy(() =>
+  import('./components/StaticPages').then((m) => ({ default: m.CollaboratorProfilePage }))
+);
+const ContactRectificationPage = lazy(() =>
+  import('./components/StaticPages').then((m) => ({ default: m.ContactRectificationPage }))
+);
+const FeedXmlPage = lazy(() => import('./components/StaticPages').then((m) => ({ default: m.FeedXmlPage })));
+const HowWeWorkPage = lazy(() => import('./components/StaticPages').then((m) => ({ default: m.HowWeWorkPage })));
+const LegalPage = lazy(() => import('./components/StaticPages').then((m) => ({ default: m.LegalPage })));
 
 const EditorialRouter: React.FC = () => {
   const { currentPath } = useSite();
   const { autoNotice, dismissAutoNotice } = useDataSaver();
   const { currentTrack } = useMediaPlayer();
+  const { needsRefresh, applyUpdate, dismissUpdate } = usePWAUpdate();
   const pathname = currentPath.split('?')[0].replace(/\/+$/, '') || '/';
   const segments = pathname.split('/').filter(Boolean);
 
@@ -48,6 +64,8 @@ const EditorialRouter: React.FC = () => {
     view = <SearchPage initialSeriesSlug={segments[1] ? decodeURIComponent(segments[1]) : undefined} />;
   } else if (segments[0] === 'buscar') {
     view = <SearchPage />;
+  } else if (segments[0] === 'tolima') {
+    view = <TolimaHeritagePage />;
   } else if (segments[0] === 'colaboradores') {
     view = <CollaboratorsPage />;
   } else if (segments[0] === 'unete') {
@@ -78,12 +96,52 @@ const EditorialRouter: React.FC = () => {
 
   return (
     <div className={`min-h-screen flex flex-col bg-[#F8F6F1] text-[#111111] dark:bg-[#0D0D0D] dark:text-[#F4F1EA] ${currentTrack ? 'pb-20' : ''}`}>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-[var(--editorial-primary)] focus:text-white focus:font-display focus:text-xs focus:font-bold focus:uppercase"
+      >
+        Saltar al contenido principal
+      </a>
       <Header />
-      <div className="flex-1">{view}</div>
+      <div id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+        <Suspense fallback={<EditorialPageSkeleton />}>{view}</Suspense>
+      </div>
       <Footer />
       <MiniAudioPlayer />
       <AuthModal />
       <OfflineIndicator />
+
+      {needsRefresh && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed ${currentTrack ? 'bottom-24' : 'bottom-4'} left-4 z-50 max-w-sm rounded-2xl border border-[var(--editorial-primary)]/50 bg-[#141414] text-white px-4 py-3 shadow-2xl space-y-2.5 text-xs`}
+        >
+          <p className="font-display font-bold uppercase tracking-wider text-white">
+            Hay una nueva edición disponible
+          </p>
+          <p className="text-neutral-300 leading-relaxed">
+            Actualiza para cargar las mejoras más recientes de la revista.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => applyUpdate()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider cursor-pointer transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Actualizar</span>
+            </button>
+            <button
+              type="button"
+              onClick={dismissUpdate}
+              className="px-3 py-1.5 rounded-full border border-neutral-700 text-neutral-300 hover:text-white font-display font-bold uppercase tracking-wider cursor-pointer"
+            >
+              Después
+            </button>
+          </div>
+        </div>
+      )}
 
       {autoNotice && (
         <div
@@ -110,15 +168,17 @@ const EditorialRouter: React.FC = () => {
 export default function App() {
   return (
     <ErrorBoundary>
-      <DataSaverProvider>
-        <AuthProvider>
-          <SiteProvider>
-            <MediaPlayerProvider>
-              <EditorialRouter />
-            </MediaPlayerProvider>
-          </SiteProvider>
-        </AuthProvider>
-      </DataSaverProvider>
+      <MotionConfig reducedMotion="user">
+        <DataSaverProvider>
+          <AuthProvider>
+            <SiteProvider>
+              <MediaPlayerProvider>
+                <EditorialRouter />
+              </MediaPlayerProvider>
+            </SiteProvider>
+          </AuthProvider>
+        </DataSaverProvider>
+      </MotionConfig>
     </ErrorBoundary>
   );
 }

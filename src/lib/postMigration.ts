@@ -9,7 +9,6 @@ import {
 import { logAdminActivity } from './activityLog';
 import { db } from './firebase';
 import {
-  isTimestampLike,
   normalizeLegacyPostForRules,
   validatePostDocumentAgainstRules,
 } from './postValidation';
@@ -24,6 +23,7 @@ export interface PostMigrationReport {
 }
 
 let autoMigrationRanForUid: string | null = null;
+let migrationInFlight: Promise<PostMigrationReport> | null = null;
 
 /**
  * Migración idempotente de publicaciones heredadas o de muestra.
@@ -38,6 +38,9 @@ export async function runIdempotentPostsMigration(
   if (!adminUid) {
     return { checkedCount: 0, migratedCount: 0, skippedCount: 0, failedIds: [] };
   }
+  if (migrationInFlight) {
+    return migrationInFlight;
+  }
   if (!options?.force && autoMigrationRanForUid === adminUid) {
     return { checkedCount: 0, migratedCount: 0, skippedCount: 0, failedIds: [] };
   }
@@ -49,55 +52,78 @@ export async function runIdempotentPostsMigration(
     slug: DEFAULT_CATEGORIES[0].slug,
   };
 
-  const snap = await getDocs(collection(db, 'posts'));
-  let migratedCount = 0;
-  let skippedCount = 0;
-  const failedIds: string[] = [];
+  const task = (async (): Promise<PostMigrationReport> => {
+    const snap = await getDocs(collection(db, 'posts'));
+    let migratedCount = 0;
+    let skippedCount = 0;
+    const failedIds: string[] = [];
 
-  for (const postDoc of snap.docs) {
-    const raw = postDoc.data() as Record<string, unknown>;
-    const issues = validatePostDocumentAgainstRules(raw);
-    const hasNonTimestampPublishedAt =
-      'publishedAt' in raw && raw.publishedAt !== undefined && !isTimestampLike(raw.publishedAt);
-    const hasNonTimestampCreatedAt = !isTimestampLike(raw.createdAt);
+    for (const postDoc of snap.docs) {
+      const raw = postDoc.data() as Record<string, unknown>;
+      const issues = validatePostDocumentAgainstRules(raw);
+      const hasNonTimestampPublishedAt =
+        'publishedAt' in raw &&
+        raw.publishedAt !== undefined &&
+        !(raw.publishedAt instanceof Timestamp);
+      const hasNonTimestampScheduledFor =
+        'scheduledFor' in raw &&
+        raw.scheduledFor !== undefined &&
+        !(raw.scheduledFor instanceof Timestamp);
+      const hasNonTimestampCreatedAt = !(raw.createdAt instanceof Timestamp);
 
-    if (issues.length === 0 && !hasNonTimestampPublishedAt && !hasNonTimestampCreatedAt) {
-      skippedCount += 1;
-      continue;
+      if (
+        issues.length === 0 &&
+        !hasNonTimestampPublishedAt &&
+        !hasNonTimestampScheduledFor &&
+        !hasNonTimestampCreatedAt
+      ) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const normalized = stripUndefinedDeep(
+        normalizeLegacyPostForRules(raw, postDoc.id, {
+          fallbackCategory: fallbackCat,
+          fallbackAuthorId: adminUid,
+          fallbackAuthorName: adminName || 'Redacción',
+          toTimestamp: (val) => Timestamp.fromDate(toDate(val)),
+          nowTimestamp: () => serverTimestamp(),
+          isNativeTimestamp: (val) => val instanceof Timestamp,
+        })
+      );
+
+      try {
+        await setDoc(doc(db, 'posts', postDoc.id), normalized);
+        migratedCount += 1;
+      } catch (err) {
+        failedIds.push(postDoc.id);
+        if (options?.force) {
+          console.warn(`No se pudo normalizar publicación ${postDoc.id}:`, err);
+        }
+      }
     }
 
-    const normalized = stripUndefinedDeep(
-      normalizeLegacyPostForRules(raw, postDoc.id, {
-        fallbackCategory: fallbackCat,
-        fallbackAuthorId: adminUid,
-        fallbackAuthorName: adminName || 'Redacción',
-        toTimestamp: (val) => Timestamp.fromDate(toDate(val)),
-        nowTimestamp: () => serverTimestamp(),
-      })
-    );
-
-    try {
-      await setDoc(doc(db, 'posts', postDoc.id), normalized);
-      migratedCount += 1;
-    } catch (err) {
-      console.warn(`No se pudo normalizar publicación ${postDoc.id}:`, err);
-      failedIds.push(postDoc.id);
+    if (migratedCount > 0) {
+      await logAdminActivity(
+        adminUid,
+        adminName || 'Administrador',
+        'Migración de publicaciones',
+        `Se normalizaron ${migratedCount} publicaciones heredadas (${skippedCount} ya conformes).`
+      );
     }
-  }
 
-  if (migratedCount > 0) {
-    await logAdminActivity(
-      adminUid,
-      adminName || 'Administrador',
-      'Migración de publicaciones',
-      `Se normalizaron ${migratedCount} publicaciones heredadas (${skippedCount} ya conformes).`
-    );
-  }
+    return {
+      checkedCount: snap.size,
+      migratedCount,
+      skippedCount,
+      failedIds,
+    };
+  })();
 
-  return {
-    checkedCount: snap.size,
-    migratedCount,
-    skippedCount,
-    failedIds,
-  };
+  migrationInFlight = task;
+  try {
+    return await task;
+  } finally {
+    migrationInFlight = null;
+  }
 }

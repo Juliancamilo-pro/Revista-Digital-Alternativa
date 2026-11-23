@@ -66,8 +66,6 @@ export const POST_ALLOWED_KEYS = [
   'headerStyle',
   'accentColor',
   'paragraphIndent',
-  'apaMode',
-  'apaReferences',
   'showTableOfContents',
   'blocks',
   'galleryItems',
@@ -170,6 +168,40 @@ export function isDeleteFieldSentinel(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const obj = value as Record<string, unknown>;
   return obj._methodName === 'deleteField';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+export function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => stripUndefinedDeep(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    if (!isPlainObject(value)) {
+      return value;
+    }
+    const obj = value as Record<string, unknown>;
+    if (
+      '_methodName' in obj ||
+      (typeof obj.toDate === 'function' && typeof obj.toMillis === 'function')
+    ) {
+      return value;
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v !== undefined) {
+        out[k] = stripUndefinedDeep(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
 }
 
 export function estimateUtf8JsonBytes(value: unknown): number {
@@ -313,10 +345,6 @@ export function validatePostDocumentAgainstRules(
     errors.push('accentColor supera 20 caracteres');
   }
   if ('paragraphIndent' in data && typeof data.paragraphIndent !== 'boolean') errors.push('paragraphIndent debe ser bool');
-  if ('apaMode' in data && typeof data.apaMode !== 'boolean') errors.push('apaMode debe ser bool');
-  if ('apaReferences' in data && (!Array.isArray(data.apaReferences) || data.apaReferences.length > 60)) {
-    errors.push('apaReferences supera 60 elementos');
-  }
   if ('showTableOfContents' in data && typeof data.showTableOfContents !== 'boolean') {
     errors.push('showTableOfContents debe ser bool');
   }
@@ -463,8 +491,10 @@ export function normalizeLegacyPostForRules(
     fallbackAuthorName: string;
     toTimestamp: (val: unknown) => unknown;
     nowTimestamp: () => unknown;
+    isNativeTimestamp?: (val: unknown) => boolean;
   }
 ): Record<string, unknown> {
+  const isValidTs = helpers.isNativeTimestamp || isTimestampLike;
   const safeId = isValidFirestoreId(docId) ? docId : `post_${Date.now()}`;
   const rawTitle = typeof rawData.title === 'string' ? rawData.title.trim() : '';
   const safeTitle = (rawTitle.length >= 3 ? rawTitle : rawTitle || 'Publicación editorial').padEnd(3, '.').slice(0, 220);
@@ -507,6 +537,8 @@ export function normalizeLegacyPostForRules(
     ? Math.floor(rawData.commentCount)
     : 0;
 
+  const safeCreatedAt = isValidTs(rawData.createdAt) ? rawData.createdAt : helpers.toTimestamp(rawData.createdAt);
+
   const cleaned: Record<string, unknown> = {
     id: safeId,
     title: safeTitle,
@@ -526,7 +558,7 @@ export function normalizeLegacyPostForRules(
     readTimeMinutes: rawReadTime,
     viewCount: rawViewCount,
     commentCount: rawCommentCount,
-    createdAt: isTimestampLike(rawData.createdAt) ? rawData.createdAt : helpers.toTimestamp(rawData.createdAt),
+    createdAt: safeCreatedAt,
     updatedAt: helpers.nowTimestamp(),
   };
 
@@ -547,8 +579,6 @@ export function normalizeLegacyPostForRules(
   if (VALID_HEADER_STYLES.includes(rawData.headerStyle as HeaderStyleVariant)) cleaned.headerStyle = rawData.headerStyle;
   if (typeof rawData.accentColor === 'string' && rawData.accentColor.trim()) cleaned.accentColor = rawData.accentColor.trim().slice(0, 20);
   if (typeof rawData.paragraphIndent === 'boolean') cleaned.paragraphIndent = rawData.paragraphIndent;
-  if (typeof rawData.apaMode === 'boolean') cleaned.apaMode = rawData.apaMode;
-  if (Array.isArray(rawData.apaReferences) && rawData.apaReferences.length > 0) cleaned.apaReferences = rawData.apaReferences.slice(0, 60);
   if (typeof rawData.showTableOfContents === 'boolean') cleaned.showTableOfContents = rawData.showTableOfContents;
   if (Array.isArray(rawData.galleryItems) && rawData.galleryItems.length > 0) cleaned.galleryItems = rawData.galleryItems.slice(0, 30);
   if (Array.isArray(rawData.corrections) && rawData.corrections.length > 0) cleaned.corrections = rawData.corrections.slice(0, 30);
@@ -572,10 +602,12 @@ export function normalizeLegacyPostForRules(
   if (typeof rawData.audioDurationSec === 'number' && rawData.audioDurationSec >= 0 && rawData.audioDurationSec <= 86400) cleaned.audioDurationSec = rawData.audioDurationSec;
 
   if (rawData.publishedAt !== undefined && rawData.publishedAt !== null) {
-    cleaned.publishedAt = isTimestampLike(rawData.publishedAt) ? rawData.publishedAt : helpers.toTimestamp(rawData.publishedAt);
+    cleaned.publishedAt = isValidTs(rawData.publishedAt) ? rawData.publishedAt : helpers.toTimestamp(rawData.publishedAt);
+  } else if (safeStatus === 'published') {
+    cleaned.publishedAt = safeCreatedAt;
   }
   if (rawData.scheduledFor !== undefined && rawData.scheduledFor !== null) {
-    cleaned.scheduledFor = isTimestampLike(rawData.scheduledFor) ? rawData.scheduledFor : helpers.toTimestamp(rawData.scheduledFor);
+    cleaned.scheduledFor = isValidTs(rawData.scheduledFor) ? rawData.scheduledFor : helpers.toTimestamp(rawData.scheduledFor);
   }
 
   return cleaned;

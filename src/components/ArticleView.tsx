@@ -1,15 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  increment,
+  limit,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 import {
   AlertTriangle,
   ArrowLeft,
-  BookMarked,
   Bookmark,
   BookOpen,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
   Clock,
   Copy,
@@ -19,7 +28,6 @@ import {
   FileText,
   Headphones,
   History,
-  Info,
   List,
   ListChecks,
   Maximize2,
@@ -31,15 +39,17 @@ import {
   Share2,
   Square,
   Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDataSaver } from '../context/DataSaverContext';
 import { AudioTrackItem, useMediaPlayer } from '../context/MediaPlayerContext';
 import { FontSizeScale, useSite } from '../context/SiteContext';
-import { buildArticleCitationApa, sortApaReferencesAlphabetically } from '../lib/apa';
 import { checkActionCooldown, generateSpamChallenge, markActionCooldown } from '../lib/appCheck';
 import { db } from '../lib/firebase';
+import { inspectMediaUrl } from '../lib/mediaEmbeds';
+import { loadVisitedArticle, saveVisitedArticle } from '../lib/offlineCache';
 import {
   buildShareLinks,
   formatDateEs,
@@ -52,190 +62,21 @@ import {
   sanitizeExternalUrl,
   toDate,
 } from '../lib/utils';
-import { CollaboratorPublic, ContentBlock, GalleryItem } from '../types/editorial';
+import { CollaboratorPublic, GalleryItem, Post } from '../types/editorial';
+import { ArticleBodyBlocks, renderInlineText } from './article/ArticleBodyBlocks';
 import { ArticleCard } from './ArticleCard';
 import { AuthorDossierCard } from './AuthorDossierCard';
-import { CommentsSection } from './CommentsSection';
 import { EditorialImage } from './EditorialImage';
-import { QuoteShareModal } from './QuoteShareModal';
+import { GalleryLightbox, LightboxSlide } from './media/GalleryLightbox';
+import { SmartEmbedPlayer } from './media/SmartEmbedPlayer';
 import { VerifiedBadge } from './VerifiedBadge';
 
-/** Safe inline formatter for **bold**, *italic*, [label](https://...), and [n] */
-function renderInlineText(raw: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\(https?:\/\/[^)]+\)|\[\d+\])/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let keyIdx = 0;
-
-  while ((match = tokenRegex.exec(raw)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(raw.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    if (token.startsWith('**') && token.endsWith('**')) {
-      parts.push(<strong key={keyIdx++}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith('*') && token.endsWith('*')) {
-      parts.push(<em key={keyIdx++}>{token.slice(1, -1)}</em>);
-    } else if (token.startsWith('[') && token.includes('](')) {
-      const m = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
-      if (m) {
-        parts.push(
-          <a
-            key={keyIdx++}
-            href={m[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline decoration-[var(--editorial-primary)] underline-offset-4 hover:text-[var(--editorial-primary)]"
-          >
-            {m[1]}
-          </a>
-        );
-      } else {
-        parts.push(token);
-      }
-    } else if (/^\[\d+\]$/.test(token)) {
-      const num = token.slice(1, -1);
-      parts.push(
-        <sup key={keyIdx++} className="font-tabular text-xs font-bold text-[var(--editorial-primary)] ml-0.5">
-          <a href={`#nota-${num}`} className="hover:underline">
-            [{num}]
-          </a>
-        </sup>
-      );
-    }
-    lastIndex = tokenRegex.lastIndex;
-  }
-
-  if (lastIndex < raw.length) {
-    parts.push(raw.slice(lastIndex));
-  }
-  return parts.length > 0 ? parts : raw;
-}
-
-const BeforeAfterSliderBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
-  const [pos, setPos] = useState(50);
-  const beforeUrl = sanitizeExternalUrl(parseMediaUrlMeta(block.beforeImageUrl || '').cleanUrl);
-  const afterUrl = sanitizeExternalUrl(parseMediaUrlMeta(block.afterImageUrl || '').cleanUrl);
-  if (!beforeUrl || !afterUrl) return null;
-
-  return (
-    <figure className="my-8 space-y-2">
-      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 select-none border border-neutral-300 dark:border-neutral-800">
-        <img
-          src={afterUrl}
-          alt={block.afterLabel || 'Después'}
-          className="absolute inset-0 w-full h-full object-cover"
-          referrerPolicy="no-referrer"
-        />
-        <div
-          className="absolute inset-0 overflow-hidden"
-          style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}
-        >
-          <img
-            src={beforeUrl}
-            alt={block.beforeLabel || 'Antes'}
-            className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
-          />
-        </div>
-        <div
-          aria-hidden="true"
-          className="absolute top-0 bottom-0 w-0.5 bg-white shadow-md pointer-events-none"
-          style={{ left: `${pos}%` }}
-        />
-        {block.beforeLabel && (
-          <span className="absolute top-3 left-3 px-2.5 py-1 rounded bg-black/75 text-white font-display text-[11px] font-bold uppercase tracking-wider">
-            {block.beforeLabel}
-          </span>
-        )}
-        {block.afterLabel && (
-          <span className="absolute top-3 right-3 px-2.5 py-1 rounded bg-black/75 text-white font-display text-[11px] font-bold uppercase tracking-wider">
-            {block.afterLabel}
-          </span>
-        )}
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={pos}
-          onChange={(e) => setPos(Number(e.target.value))}
-          aria-label="Comparar antes y después"
-          className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-        />
-      </div>
-      {block.text && (
-        <figcaption className="text-xs text-neutral-600 dark:text-neutral-400 italic">
-          {block.text}
-        </figcaption>
-      )}
-    </figure>
-  );
-};
-
-const CarouselBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
-  const items = (block.carouselItems || []).filter((i) => sanitizeExternalUrl(i.url));
-  const [idx, setIdx] = useState(0);
-  if (items.length === 0) return null;
-  const active = items[idx % items.length];
-
-  return (
-    <figure className="my-8 space-y-2.5">
-      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 border border-neutral-300 dark:border-neutral-800">
-        <EditorialImage
-          src={active.url}
-          alt={active.alt || active.caption || 'Imagen de carrusel'}
-          fallbackTitle={active.caption}
-          className="w-full h-full object-cover"
-        />
-        {items.length > 1 && (
-          <>
-            <button
-              type="button"
-              onClick={() => setIdx((i) => (i - 1 + items.length) % items.length)}
-              aria-label="Diapositiva anterior"
-              className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/70 text-white hover:bg-black cursor-pointer"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setIdx((i) => (i + 1) % items.length)}
-              aria-label="Diapositiva siguiente"
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/70 text-white hover:bg-black cursor-pointer"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-            <span className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full bg-black/75 text-white font-tabular text-[11px]">
-              {idx + 1} / {items.length}
-            </span>
-          </>
-        )}
-      </div>
-      {(active.caption || active.credit || items.length > 1) && (
-        <figcaption className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-600 dark:text-neutral-400">
-          <span className="italic">{active.caption}</span>
-          {active.credit && <span className="font-display uppercase">{active.credit}</span>}
-          {items.length > 1 && (
-            <div className="flex items-center gap-1.5">
-              {items.map((it, i) => (
-                <button
-                  key={it.id}
-                  type="button"
-                  onClick={() => setIdx(i)}
-                  aria-label={`Ir a imagen ${i + 1}`}
-                  className={`w-2 h-2 rounded-full cursor-pointer transition-colors ${
-                    i === idx ? 'bg-[var(--editorial-primary)]' : 'bg-neutral-400/50'
-                  }`}
-                />
-              ))}
-            </div>
-          )}
-        </figcaption>
-      )}
-    </figure>
-  );
-};
+const CommentsSection = lazy(() =>
+  import('./CommentsSection').then((m) => ({ default: m.CommentsSection }))
+);
+const QuoteShareModal = lazy(() =>
+  import('./QuoteShareModal').then((m) => ({ default: m.QuoteShareModal }))
+);
 
 export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   const {
@@ -262,17 +103,79 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     currentTime: globalAudioTime,
     duration: globalAudioDuration,
     playbackRate: globalAudioRate,
+    volume: globalAudioVolume,
+    isMuted: globalAudioMuted,
+    playbackError: globalAudioError,
     playTrack,
     togglePlayPause,
     seekTo,
     skipBy,
     setPlaybackRate,
+    setVolume,
+    toggleMute,
   } = useMediaPlayer();
 
-  const post = useMemo(() => {
+  const [remotePost, setRemotePost] = useState<Post | null>(null);
+  const [loadingRemotePost, setLoadingRemotePost] = useState(false);
+
+  const poolPost = useMemo(() => {
     const pool = [...publishedPosts, ...myPosts, ...allPostsForAdmin];
     return pool.find((p) => p.slug === slug || p.id === slug) || null;
   }, [publishedPosts, myPosts, allPostsForAdmin, slug]);
+
+  const cachedPost = useMemo(() => {
+    if (poolPost) return null;
+    return loadVisitedArticle(slug);
+  }, [poolPost, slug]);
+
+  useEffect(() => {
+    if (poolPost) {
+      setRemotePost(null);
+      setLoadingRemotePost(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingRemotePost(true);
+    (async () => {
+      try {
+        const bySlugQ = query(
+          collection(db, 'posts'),
+          where('slug', '==', slug),
+          where('status', '==', 'published'),
+          limit(1)
+        );
+        const snap = await getDocs(bySlugQ);
+        if (!cancelled && !snap.empty) {
+          setRemotePost(snap.docs[0].data() as Post);
+          setLoadingRemotePost(false);
+          return;
+        }
+        const directSnap = await getDoc(doc(db, 'posts', slug));
+        if (!cancelled && directSnap.exists()) {
+          const data = directSnap.data() as Post;
+          if (data.status === 'published') {
+            setRemotePost(data);
+            setLoadingRemotePost(false);
+            return;
+          }
+        }
+      } catch {
+        // En modo sin conexión usa automáticamente cachedPost
+      }
+      if (!cancelled) setLoadingRemotePost(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [poolPost, slug]);
+
+  const post = poolPost || remotePost || cachedPost;
+
+  useEffect(() => {
+    if (post && post.status === 'published') {
+      saveVisitedArticle(post);
+    }
+  }, [post]);
 
   const isLegacyAdminMatch = Boolean(
     post &&
@@ -327,11 +230,10 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
 
   const [scrollProgress, setScrollProgress] = useState(0);
   const [copied, setCopied] = useState(false);
-  const [copiedApa, setCopiedApa] = useState(false);
   const [showSharePreview, setShowSharePreview] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [standaloneLightbox, setStandaloneLightbox] = useState<LightboxSlide | null>(null);
   const [infographicOpen, setInfographicOpen] = useState(false);
-  const [mediaLoadedInDataSaver, setMediaLoadedInDataSaver] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [videoStartSec, setVideoStartSec] = useState<number | undefined>(undefined);
   const [quoteShare, setQuoteShare] = useState<{ text: string; author?: string } | null>(null);
@@ -360,9 +262,9 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   const enteredAtRef = useRef<number>(Date.now());
 
   useEffect(() => {
-    setMediaLoadedInDataSaver(false);
     setInfographicOpen(false);
     setLightboxIdx(null);
+    setStandaloneLightbox(null);
     setTranscriptOpen(false);
     setVideoStartSec(undefined);
   }, [post?.id]);
@@ -391,26 +293,44 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [setReadingMode]);
 
-  // Sync browser title & SEO description meta tags while reading article
+  // Sync browser title & SEO/OpenGraph/Twitter meta tags while reading article
   useEffect(() => {
     if (!post) return;
+    const prevTitle = document.title;
     document.title = `${post.title} – ${siteConfig.siteName}`;
     const desc = post.seoDescription || post.subtitle || siteConfig.tagline || siteConfig.siteName;
-    const metas = [
-      document.querySelector('meta[name="description"]'),
-      document.querySelector('meta[property="og:description"]'),
-      document.querySelector('meta[name="twitter:description"]'),
+    const cleanCover = post.coverImage
+      ? sanitizeExternalUrl(parseMediaUrlMeta(post.coverImage).cleanUrl)
+      : '';
+    const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+    const updates: Array<[string, string]> = [
+      ['meta[name="description"]', desc],
+      ['meta[property="og:title"]', `${post.title} – ${siteConfig.siteName}`],
+      ['meta[property="og:description"]', desc],
+      ['meta[name="twitter:title"]', `${post.title} – ${siteConfig.siteName}`],
+      ['meta[name="twitter:description"]', desc],
     ];
-    const prevContents = metas.map((m) => m?.getAttribute('content') || '');
-    metas.forEach((m) => m?.setAttribute('content', desc));
+    if (pageUrl) updates.push(['meta[property="og:url"]', pageUrl]);
+    if (cleanCover) {
+      updates.push(['meta[property="og:image"]', cleanCover]);
+      updates.push(['meta[name="twitter:image"]', cleanCover]);
+    }
+
+    const prevValues = updates.map(([selector, value]) => {
+      const el = document.querySelector(selector);
+      const prev = el?.getAttribute('content') || '';
+      if (el) el.setAttribute('content', value);
+      return { el, prev };
+    });
 
     return () => {
-      document.title = `${siteConfig.siteName} – Periodismo Independiente y Crítico`;
-      metas.forEach((m, idx) => {
-        if (m && prevContents[idx]) m.setAttribute('content', prevContents[idx]);
+      document.title = prevTitle;
+      prevValues.forEach(({ el, prev }) => {
+        if (el) el.setAttribute('content', prev);
       });
     };
-  }, [post?.title, post?.seoDescription, post?.subtitle, siteConfig.siteName, siteConfig.tagline]);
+  }, [post?.title, post?.seoDescription, post?.subtitle, post?.coverImage, siteConfig.siteName, siteConfig.tagline]);
 
   // Privacy-safe view increment & analytics event
   useEffect(() => {
@@ -453,23 +373,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [post?.id]);
 
-  // Keyboard navigation in lightbox / infographic viewer
-  useEffect(() => {
-    if (lightboxIdx === null && !infographicOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setLightboxIdx(null);
-        setInfographicOpen(false);
-      }
-      if (lightboxIdx !== null && post?.galleryItems) {
-        const items = post.galleryItems;
-        if (e.key === 'ArrowRight') setLightboxIdx((i) => (i === null ? 0 : (i + 1) % items.length));
-        if (e.key === 'ArrowLeft') setLightboxIdx((i) => (i === null ? 0 : (i - 1 + items.length) % items.length));
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [lightboxIdx, infographicOpen, post?.galleryItems]);
+  // Keyboard handling delegated to GalleryLightbox
 
   const seriesEpisodes = useMemo(() => {
     if (!post?.seriesId) return [];
@@ -503,10 +407,16 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
       .filter((t) => Boolean(t.mediaUrl));
   }, [seriesEpisodes]);
 
-  const sortedApaRefs = useMemo(
-    () => sortApaReferencesAlphabetically(post?.apaReferences || []),
-    [post?.apaReferences]
-  );
+  if (!post && loadingRemotePost) {
+    return (
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12 space-y-6 animate-pulse">
+        <div className="h-4 w-32 bg-neutral-300 dark:bg-neutral-800 rounded" />
+        <div className="h-10 w-3/4 bg-neutral-300 dark:bg-neutral-800 rounded" />
+        <div className="h-5 w-1/2 bg-neutral-200 dark:bg-neutral-800/70 rounded" />
+        <div className="aspect-[16/9] w-full bg-neutral-200 dark:bg-neutral-800 rounded-2xl" />
+      </main>
+    );
+  }
 
   if (!post) {
     return (
@@ -610,17 +520,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     }
   };
 
-  const handleCopyApaCitation = async () => {
-    const citation = buildArticleCitationApa(post, resolvedAuthorName, siteConfig.siteName, articleUrl);
-    try {
-      await navigator.clipboard.writeText(citation);
-      setCopiedApa(true);
-      setTimeout(() => setCopiedApa(false), 2500);
-    } catch {
-      // ignore
-    }
-  };
-
   const handleReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setReportErr('');
@@ -692,13 +591,11 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   const footnotes = post.blocks.filter((b) => b.type === 'footnote');
   const bodyBlocks = post.blocks.filter((b) => b.type !== 'footnote');
   const headings = bodyBlocks.filter((b) => b.type === 'heading' && b.text?.trim());
-  const shouldShowToc = Boolean(post.showTableOfContents || (post.apaMode && headings.length >= 3)) && headings.length > 0;
+  const shouldShowToc = Boolean(post.showTableOfContents) && headings.length > 0;
 
-  let paragraphIdx = 0;
-  let figureCounter = 0;
-  let tableCounter = 0;
-
-  const embedInfo = post.mediaUrl ? getEmbedUrl(post.mediaUrl, videoStartSec) : null;
+  const mediaInspected = post.mediaUrl
+    ? inspectMediaUrl(post.mediaUrl, post.type === 'audio' ? 'audio' : 'video', videoStartSec)
+    : null;
   const authorTargetId = isAdminIdentity ? adminIdentityKey : post.authorId;
 
   const verified = isAuthorVerified(
@@ -717,7 +614,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     ? collabProfile.avatarUrl || post.authorAvatar
     : undefined;
 
-  const showMediaDeferredBanner = isDataSaverActive && !mediaLoadedInDataSaver;
   const coverLayout = post.coverLayout || 'full';
   const headerStyle = post.headerStyle || 'classic';
   const customAccentStyle =
@@ -732,7 +628,9 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     currentTrack && currentTrack.postId === post.id && globalAudioPlaying
   );
   const isThisAudioLoaded = Boolean(currentTrack && currentTrack.postId === post.id);
-  const currentAudioUrl = sanitizeExternalUrl(post.mediaUrl || '');
+  const currentAudioUrl = sanitizeExternalUrl(
+    mediaInspected?.kind === 'audio' ? mediaInspected.src : post.mediaUrl || ''
+  );
 
   const handlePlayCurrentEpisode = (seekSeconds?: number) => {
     if (!currentAudioUrl) return;
@@ -763,8 +661,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   };
 
   const handleSeekVideoChapter = (sec: number) => {
-    setMediaLoadedInDataSaver(true);
-    if (embedInfo?.kind === 'video' && videoRef.current) {
+    if (mediaInspected?.kind === 'video' && videoRef.current) {
       videoRef.current.currentTime = sec;
       videoRef.current.play().catch(() => undefined);
     } else {
@@ -829,7 +726,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/65 to-black/25 pointer-events-none" />
             <div className="relative z-10 max-w-3xl space-y-3">
               <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest">
-                <span className="px-2.5 py-0.5 rounded-full bg-[var(--editorial-primary)] text-white">
+                <span className="px-2 py-0.5 bg-[var(--editorial-primary)] text-white">
                   {getEditorialKindLabel(post.editorialKind)}
                 </span>
                 <a
@@ -865,7 +762,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             <div className={coverLayout === 'compact' && post.coverImage && post.type !== 'video' ? 'grid grid-cols-1 md:grid-cols-12 gap-6 items-center' : ''}>
               <div className={coverLayout === 'compact' && post.coverImage && post.type !== 'video' ? 'md:col-span-7' : ''}>
                 <div className={`flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)] ${headerStyle === 'minimal' ? 'justify-center' : ''}`}>
-                  <span className="px-2.5 py-0.5 rounded-full bg-[var(--editorial-primary)]/10 text-[var(--editorial-primary)] border border-[var(--editorial-primary)]/25">
+                  <span className="px-2 py-0.5 border border-[var(--editorial-primary)]/40 text-[var(--editorial-primary)]">
                     {getEditorialKindLabel(post.editorialKind)}
                   </span>
                   <a
@@ -1154,65 +1051,21 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
         )}
 
-        {/* Enhanced Video Player with Chapters, Subtitles & Transcript */}
-        {post.type === 'video' && embedInfo && embedInfo.src && (
+        {/* Enhanced Video Player with SmartEmbedPlayer, Chapters, Subtitles & Transcript */}
+        {post.type === 'video' && post.mediaUrl && (
           <section className="mt-8 space-y-4">
-            <div className="rounded-2xl overflow-hidden border border-neutral-300 dark:border-neutral-800 bg-black shadow-lg">
-              {showMediaDeferredBanner ? (
-                <div className="p-10 text-center text-white space-y-3 bg-neutral-950">
-                  <p className="font-display text-xs font-bold uppercase tracking-widest text-[#FCA5A5]">
-                    Modo ahorro de datos activo
-                  </p>
-                  <p className="text-sm text-neutral-300">
-                    El video externo no se cargó automáticamente para cuidar tu consumo móvil.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setMediaLoadedInDataSaver(true)}
-                    className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white text-[#111111] font-display text-xs font-bold uppercase tracking-wider cursor-pointer hover:bg-neutral-200"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    <span>Cargar reproductor de video</span>
-                  </button>
-                </div>
-              ) : embedInfo.kind === 'iframe' ? (
-                <div className="aspect-video">
-                  <iframe
-                    src={embedInfo.src}
-                    title={post.title}
-                    className="w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
-                </div>
-              ) : embedInfo.kind === 'video' ? (
-                <video
-                  ref={videoRef}
-                  src={embedInfo.src}
-                  controls
-                  preload={isDataSaverActive ? 'none' : 'metadata'}
-                  className="w-full aspect-video"
-                  poster={sanitizeExternalUrl(parseMediaUrlMeta(post.coverImage || '').cleanUrl)}
-                >
-                  {post.mediaSubtitlesUrl && sanitizeExternalUrl(post.mediaSubtitlesUrl) && (
-                    <track
-                      kind="subtitles"
-                      src={sanitizeExternalUrl(post.mediaSubtitlesUrl)}
-                      srcLang="es"
-                      label="Español"
-                      default
-                    />
-                  )}
-                </video>
-              ) : (
-                <div className="p-8 text-center text-white space-y-2">
-                  <p className="text-sm">Enlace de video externo:</p>
-                  <a href={embedInfo.src} target="_blank" rel="noopener noreferrer" className="underline text-[#FCA5A5]">
-                    {embedInfo.src}
-                  </a>
-                </div>
-              )}
-            </div>
+            <SmartEmbedPlayer
+              url={post.mediaUrl}
+              title={post.title}
+              posterUrl={post.coverImage}
+              kindHint="video"
+              startSeconds={videoStartSec}
+              subtitlesUrl={post.mediaSubtitlesUrl}
+              isDataSaverActive={isDataSaverActive}
+              onVideoElementReady={(el: HTMLVideoElement | null) => {
+                videoRef.current = el;
+              }}
+            />
 
             {post.mediaDurationLabel && (
               <p className="text-xs font-tabular text-neutral-500">
@@ -1289,7 +1142,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         )}
 
         {/* Enhanced Audio / Podcast Player + Persistent Mini-Player Integration */}
-        {post.type === 'audio' && currentAudioUrl && (
+        {post.type === 'audio' && post.mediaUrl && (
           <section className="mt-8 space-y-4">
             <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[#111111] text-white p-5 sm:p-6 space-y-4 shadow-lg">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1310,34 +1163,20 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 )}
               </div>
 
-              {embedInfo?.kind === 'iframe' ? (
-                showMediaDeferredBanner ? (
-                  <div className="pt-1 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs text-neutral-300">
-                      Ahorro de datos activo: pulsa para cargar el reproductor externo.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setMediaLoadedInDataSaver(true)}
-                      className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white text-[#111111] font-display text-xs font-bold uppercase cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      <span>Cargar episodio</span>
-                    </button>
-                  </div>
-                ) : (
-                  <iframe
-                    src={embedInfo.src}
-                    title={post.title}
-                    className="w-full h-40 rounded-xl"
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                  />
-                )
+              {mediaInspected?.kind === 'iframe' || mediaInspected?.kind === 'link' ? (
+                <SmartEmbedPlayer
+                  url={post.mediaUrl}
+                  title={post.title}
+                  posterUrl={post.coverImage}
+                  kindHint="audio"
+                  isDataSaverActive={isDataSaverActive}
+                  compact
+                />
               ) : (
                 <div className="space-y-3">
                   {/* Unified Persistent Audio Controls */}
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => handlePlayCurrentEpisode()}
@@ -1351,42 +1190,86 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                         <>
                           <button
                             type="button"
-                            onClick={() => skipBy(-15)}
-                            aria-label="Retroceder 15 segundos"
-                            className="p-2 rounded-full border border-neutral-700 hover:border-white text-neutral-300 cursor-pointer"
+                            onClick={() => skipBy(-10)}
+                            aria-label="Retroceder 10 segundos"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-neutral-700 hover:border-white text-neutral-300 text-xs font-tabular cursor-pointer"
                           >
-                            <RotateCcw className="w-4 h-4" />
+                            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>-10 s</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => skipBy(15)}
-                            aria-label="Adelantar 15 segundos"
-                            className="p-2 rounded-full border border-neutral-700 hover:border-white text-neutral-300 cursor-pointer"
+                            onClick={() => skipBy(10)}
+                            aria-label="Adelantar 10 segundos"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-neutral-700 hover:border-white text-neutral-300 text-xs font-tabular cursor-pointer"
                           >
-                            <RotateCw className="w-4 h-4" />
+                            <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>+10 s</span>
                           </button>
                         </>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-xs font-tabular">
-                      <span className="text-neutral-400">Velocidad:</span>
-                      {[0.75, 1, 1.25, 1.5, 2].map((r) => (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-1.5 text-xs font-tabular">
+                        <span className="text-neutral-400">Velocidad:</span>
+                        {[1, 1.5, 2].map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setPlaybackRate(r)}
+                            className={`px-2.5 py-0.5 rounded-full border cursor-pointer ${
+                              globalAudioRate === r
+                                ? 'bg-[var(--editorial-primary)] border-[var(--editorial-primary)] text-white'
+                                : 'border-neutral-700 text-neutral-300'
+                            }`}
+                          >
+                            {r}x
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
                         <button
-                          key={r}
                           type="button"
-                          onClick={() => setPlaybackRate(r)}
-                          className={`px-2.5 py-0.5 rounded-full border cursor-pointer ${
-                            globalAudioRate === r
-                              ? 'bg-[var(--editorial-primary)] border-[var(--editorial-primary)] text-white'
-                              : 'border-neutral-700 text-neutral-300'
-                          }`}
+                          onClick={toggleMute}
+                          aria-label={globalAudioMuted || globalAudioVolume === 0 ? 'Activar sonido' : 'Silenciar'}
+                          className="p-1.5 rounded-full border border-neutral-700 hover:border-white text-neutral-300 cursor-pointer"
                         >
-                          {r}x
+                          {globalAudioMuted || globalAudioVolume === 0 ? (
+                            <VolumeX className="w-3.5 h-3.5 text-[#FCA5A5]" />
+                          ) : (
+                            <Volume2 className="w-3.5 h-3.5" />
+                          )}
                         </button>
-                      ))}
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={globalAudioMuted ? 0 : globalAudioVolume}
+                          onChange={(e) => setVolume(Number(e.target.value))}
+                          aria-label="Volumen del episodio"
+                          className="w-20 accent-[var(--editorial-primary)] cursor-pointer"
+                        />
+                      </div>
                     </div>
                   </div>
+
+                  {isThisAudioLoaded && globalAudioError && currentAudioUrl && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-red-950/50 border border-red-800/70 px-3.5 py-2 text-xs text-red-200">
+                      <span>No se pudo reproducir el archivo de audio directamente en el navegador.</span>
+                      <a
+                        href={currentAudioUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-display font-bold uppercase text-white underline"
+                      >
+                        <span>Abrir audio</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
 
                   {isThisAudioLoaded && (
                     <div className="space-y-1">
@@ -1576,406 +1459,14 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
 
         {/* Article Body Column (65-72ch measure) */}
         <div className={`mt-10 max-w-[70ch] mx-auto space-y-6 font-editorial ${fontSizeClass[fontSize]}`}>
-          {bodyBlocks.map((block: ContentBlock) => {
-            switch (block.type) {
-              case 'paragraph': {
-                const isFirst = paragraphIdx === 0;
-                paragraphIdx++;
-                const classNames = isFirst
-                  ? 'editorial-lead'
-                  : post.paragraphIndent
-                  ? 'editorial-paragraph-indent'
-                  : '';
-                return (
-                  <p key={block.id} className={classNames}>
-                    {renderInlineText(block.text || '')}
-                  </p>
-                );
-              }
-              case 'heading': {
-                const anchorId = `sec-${block.id}`;
-                if (block.level === 4) {
-                  return (
-                    <h4 id={anchorId} key={block.id} className="font-display text-xl font-bold tracking-tight pt-2 scroll-mt-16">
-                      {block.text}
-                    </h4>
-                  );
-                }
-                if (block.level === 3) {
-                  return (
-                    <h3 id={anchorId} key={block.id} className="font-display text-2xl font-bold tracking-tight pt-3 scroll-mt-16">
-                      {block.text}
-                    </h3>
-                  );
-                }
-                return (
-                  <h2 id={anchorId} key={block.id} className="font-display text-3xl font-extrabold tracking-tight pt-5 scroll-mt-16">
-                    {block.text}
-                  </h2>
-                );
-              }
-              case 'quote': {
-                const wordCount = (block.text || '').trim().split(/\s+/).filter(Boolean).length;
-                if (post.apaMode && wordCount >= 40) {
-                  return (
-                    <blockquote
-                      key={block.id}
-                      className="my-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] py-4 pr-5 apa-blockquote space-y-2"
-                    >
-                      <p className="text-[#111111] dark:text-[#F4F1EA]">
-                        {renderInlineText(block.text || '')}
-                      </p>
-                      {block.author && (
-                        <footer className="text-xs font-display font-bold uppercase tracking-wider text-neutral-500">
-                          — {block.author}
-                        </footer>
-                      )}
-                    </blockquote>
-                  );
-                }
-                return (
-                  <blockquote
-                    key={block.id}
-                    className="my-8 py-6 border-y border-neutral-400 dark:border-neutral-700 text-center px-4 space-y-3"
-                  >
-                    <p className="font-editorial italic text-2xl sm:text-3xl leading-snug text-[#111111] dark:text-[#F4F1EA]">
-                      “{block.text}”
-                    </p>
-                    {block.author && (
-                      <footer className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                        — {block.author}
-                      </footer>
-                    )}
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setQuoteShare({
-                            text: block.text || '',
-                            author: block.author || resolvedAuthorName,
-                          })
-                        }
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 hover:border-[var(--editorial-primary)] hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
-                      >
-                        <Quote className="w-3.5 h-3.5" />
-                        <span>Compartir cita</span>
-                      </button>
-                    </div>
-                  </blockquote>
-                );
-              }
-              case 'speaker_quote':
-                return (
-                  <blockquote
-                    key={block.id}
-                    className="my-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4 shadow-xs"
-                  >
-                    <p className="font-editorial italic text-xl sm:text-2xl leading-relaxed text-[#111111] dark:text-[#F4F1EA]">
-                      “{block.text}”
-                    </p>
-                    <footer className="flex items-center gap-3 pt-2 border-t border-neutral-200 dark:border-neutral-800">
-                      {block.imageUrl && (
-                        <div className="w-11 h-11 rounded-full overflow-hidden shrink-0 bg-neutral-200 dark:bg-neutral-800">
-                          <EditorialImage src={block.imageUrl} alt={block.author || ''} className="w-full h-full object-cover" />
-                        </div>
-                      )}
-                      <div>
-                        {block.author && (
-                          <p className="font-display text-sm font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
-                            {block.author}
-                          </p>
-                        )}
-                        {block.speakerRole && (
-                          <p className="text-xs text-neutral-500">{block.speakerRole}</p>
-                        )}
-                      </div>
-                    </footer>
-                  </blockquote>
-                );
-              case 'callout':
-              case 'context_box': {
-                const tone = block.type === 'context_box' ? 'info' : block.calloutTone || 'info';
-                const cardClass =
-                  tone === 'warning'
-                    ? 'border-amber-500/40 bg-amber-50/70 dark:bg-amber-950/20'
-                    : tone === 'key_fact'
-                    ? 'border-[var(--editorial-primary)]/35 bg-neutral-100/90 dark:bg-neutral-900'
-                    : block.type === 'context_box'
-                    ? 'border-neutral-300 dark:border-neutral-800 bg-neutral-100/80 dark:bg-[#171717]'
-                    : 'border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414]';
-                const badgeText =
-                  block.type === 'context_box'
-                    ? 'Caja de contexto'
-                    : tone === 'warning'
-                    ? 'Advertencia'
-                    : tone === 'key_fact'
-                    ? 'Dato clave'
-                    : 'Contexto';
-                return (
-                  <aside key={block.id} className={`my-7 rounded-2xl border p-5 space-y-2 ${cardClass}`}>
-                    <div className="flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
-                      {tone === 'warning' ? (
-                        <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                      ) : (
-                        <Info className="w-4 h-4 shrink-0" aria-hidden="true" />
-                      )}
-                      <span>{block.calloutTitle || badgeText}</span>
-                    </div>
-                    {block.text && (
-                      <p className="text-base leading-relaxed text-neutral-800 dark:text-neutral-200 whitespace-pre-line">
-                        {renderInlineText(block.text)}
-                      </p>
-                    )}
-                  </aside>
-                );
-              }
-              case 'columns': {
-                const cols = block.columns || [];
-                if (cols.length === 0) return null;
-                return (
-                  <div
-                    key={block.id}
-                    className={`my-7 grid grid-cols-1 ${
-                      cols.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
-                    } gap-4`}
-                  >
-                    {cols.map((col, ci) => (
-                      <div
-                        key={ci}
-                        className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-1.5"
-                      >
-                        {col.title && (
-                          <h4 className="font-display text-base font-bold uppercase tracking-wide text-[var(--editorial-primary)]">
-                            {col.title}
-                          </h4>
-                        )}
-                        <p className="text-sm sm:text-base leading-relaxed text-neutral-800 dark:text-neutral-200">
-                          {renderInlineText(col.body)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                );
-              }
-              case 'metrics': {
-                const items = (block.metricItems || []).filter((m) => m.value || m.label);
-                if (items.length === 0) return null;
-                return (
-                  <section key={block.id} className="my-8 space-y-3">
-                    {block.text && (
-                      <p className="font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
-                        {block.text}
-                      </p>
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {items.map((m, mi) => (
-                        <div
-                          key={mi}
-                          className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-1"
-                        >
-                          <p className="font-display text-3xl sm:text-4xl font-extrabold text-[var(--editorial-primary)] font-tabular">
-                            {m.value}
-                          </p>
-                          <p className="font-display text-sm font-bold uppercase tracking-wide">{m.label}</p>
-                          {m.detail && <p className="text-xs text-neutral-500">{m.detail}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                );
-              }
-              case 'before_after':
-                return <BeforeAfterSliderBlock key={block.id} block={block} />;
-              case 'carousel':
-                return <CarouselBlock key={block.id} block={block} />;
-              case 'list': {
-                const items = (block.listItems || []).filter((item) => item.trim().length > 0);
-                if (items.length === 0) return null;
-                return block.listStyle === 'ordered' ? (
-                  <ol key={block.id} className="list-decimal pl-6 space-y-2">
-                    {items.map((item, idx) => (
-                      <li key={idx}>{renderInlineText(item)}</li>
-                    ))}
-                  </ol>
-                ) : (
-                  <ul key={block.id} className="list-disc pl-6 space-y-2">
-                    {items.map((item, idx) => (
-                      <li key={idx}>{renderInlineText(item)}</li>
-                    ))}
-                  </ul>
-                );
-              }
-              case 'document': {
-                const safeDocUrl = sanitizeExternalUrl(block.documentUrl || '');
-                if (!safeDocUrl) return null;
-                return (
-                  <div
-                    key={block.id}
-                    className="my-7 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                  >
-                    <div className="flex items-start gap-3">
-                      <FileText className="w-5 h-5 text-[var(--editorial-primary)] shrink-0 mt-0.5" aria-hidden="true" />
-                      <div>
-                        <p className="font-display text-base font-bold">
-                          {block.documentTitle || 'Documento adjunto'}
-                        </p>
-                        {block.documentDescription && (
-                          <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
-                            {block.documentDescription}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <a
-                      href={safeDocUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-400 dark:border-neutral-700 font-display text-xs font-bold uppercase tracking-wider shrink-0 hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors"
-                    >
-                      <Download className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Descargar PDF</span>
-                    </a>
-                  </div>
-                );
-              }
-              case 'image': {
-                figureCounter++;
-                return (
-                  <figure key={block.id} className="my-8">
-                    {post.apaMode && (
-                      <p className="mb-1.5 font-display text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">
-                        Figura {figureCounter}.
-                      </p>
-                    )}
-                    <div className="aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900">
-                      <EditorialImage
-                        src={block.imageUrl}
-                        alt={block.imageAlt || block.imageCaption || 'Imagen editorial'}
-                        fallbackTitle={block.imageCaption}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    {(block.imageCaption || block.imageCredit) && (
-                      <figcaption className="mt-2 text-xs text-neutral-600 dark:text-neutral-400 italic flex flex-wrap justify-between gap-2">
-                        <span>{block.imageCaption}</span>
-                        {block.imageCredit && <span className="not-italic font-display uppercase">{block.imageCredit}</span>}
-                      </figcaption>
-                    )}
-                  </figure>
-                );
-              }
-              case 'timeline':
-                return (
-                  <div key={block.id} className="my-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6">
-                    {block.text && (
-                      <h3 className="font-display text-lg font-extrabold uppercase tracking-wider text-[var(--editorial-primary)] mb-4">
-                        {block.text}
-                      </h3>
-                    )}
-                    <ol className="space-y-4">
-                      {(block.timelineEntries || []).map((entry, idx) => (
-                        <li key={idx} className="pb-4 border-b border-neutral-200 dark:border-neutral-800 last:border-b-0 last:pb-0">
-                          <span className="font-tabular text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                            {entry.date}
-                          </span>
-                          <h4 className="font-display text-xl font-bold mt-0.5">{entry.title}</h4>
-                          <p className="text-sm text-neutral-600 dark:text-neutral-300 mt-1 leading-relaxed">
-                            {entry.detail}
-                          </p>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                );
-              case 'table': {
-                tableCounter++;
-                return (
-                  <figure key={block.id} className="my-8 space-y-2">
-                    {post.apaMode && (
-                      <p className="font-display text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">
-                        Tabla {tableCounter}. {block.text ? <span className="italic font-normal normal-case">{block.text}</span> : null}
-                      </p>
-                    )}
-                    <div className="rounded-2xl overflow-x-auto border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414]">
-                      {!post.apaMode && block.text && (
-                        <p className="px-4 py-2.5 font-display text-xs font-bold uppercase tracking-wider border-b border-neutral-300 dark:border-neutral-800">
-                          {block.text}
-                        </p>
-                      )}
-                      <table className="w-full text-left text-sm">
-                        {block.tableHeaders && block.tableHeaders.length > 0 && (
-                          <thead className="border-b border-neutral-300 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 font-display uppercase text-xs tracking-wider">
-                            <tr>
-                              {block.tableHeaders.map((h, i) => (
-                                <th key={i} className="px-4 py-2.5 font-bold">
-                                  {h}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                        )}
-                        <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                          {(block.tableRows || []).map((row, ri) => (
-                            <tr key={ri}>
-                              {row.map((cell, ci) => (
-                                <td key={ci} className="px-4 py-2.5 font-tabular">
-                                  {cell}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {block.tableCaption && (
-                      <figcaption className="text-xs text-neutral-600 dark:text-neutral-400 italic">
-                        Nota. {block.tableCaption}
-                      </figcaption>
-                    )}
-                  </figure>
-                );
-              }
-              case 'divider':
-                if (block.dividerVariant === 'asterisks') {
-                  return (
-                    <div key={block.id} aria-hidden="true" className="my-8 text-center font-display text-xl tracking-[0.6em] text-neutral-500">
-                      * * *
-                    </div>
-                  );
-                }
-                if (block.dividerVariant === 'red_rule') {
-                  return (
-                    <hr key={block.id} className="my-8 border-t-2 border-[var(--editorial-primary)] w-16 mx-auto" />
-                  );
-                }
-                return <hr key={block.id} className="my-8 border-neutral-300 dark:border-neutral-800 w-1/3 mx-auto" />;
-              case 'social_embed': {
-                const safeEmbed = sanitizeExternalUrl(block.embedUrl || '');
-                if (!safeEmbed) return null;
-                return (
-                  <div key={block.id} className="my-6 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
-                        Publicación referenciada ({block.embedPlatform || 'Red social'})
-                      </p>
-                      <p className="text-sm truncate text-neutral-700 dark:text-neutral-300 mt-0.5">{safeEmbed}</p>
-                    </div>
-                    <a
-                      href={safeEmbed}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-4 py-1.5 rounded-full border border-neutral-400 font-display text-xs font-bold uppercase shrink-0 hover:bg-neutral-900 hover:text-white dark:hover:bg-white dark:hover:text-black"
-                    >
-                      Abrir
-                    </a>
-                  </div>
-                );
-              }
-              default:
-                return null;
-            }
-          })}
+          <ArticleBodyBlocks
+            blocks={bodyBlocks}
+            paragraphIndent={post.paragraphIndent}
+            resolvedAuthorName={resolvedAuthorName}
+            isDataSaverActive={isDataSaverActive}
+            onQuoteShare={(payload) => setQuoteShare(payload)}
+            onImageClick={(slide) => setStandaloneLightbox(slide)}
+          />
 
           {/* Footnotes */}
           {footnotes.length > 0 && (
@@ -1994,35 +1485,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             </aside>
           )}
         </div>
-
-        {/* APA 7 Bibliographic References & Article Citation Button */}
-        {(sortedApaRefs.length > 0 || post.apaMode) && (
-          <section className="max-w-[70ch] mx-auto mt-10 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="inline-flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
-                <BookMarked className="w-4 h-4" aria-hidden="true" />
-                <span>Referencias (APA 7)</span>
-              </h3>
-              <button
-                type="button"
-                onClick={handleCopyApaCitation}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-[var(--editorial-primary)] text-xs font-display font-bold uppercase tracking-wider cursor-pointer"
-              >
-                {copiedApa ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedApa ? 'Cita APA copiada' : 'Copiar cita de este artículo en formato APA'}</span>
-              </button>
-            </div>
-            {sortedApaRefs.length > 0 && (
-              <ol className="space-y-2.5 text-sm leading-relaxed text-neutral-800 dark:text-neutral-200">
-                {sortedApaRefs.map((ref) => (
-                  <li key={ref.id} className="apa-reference">
-                    {ref.formatted}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-        )}
 
         {/* Sources Consulted */}
         {post.sources && post.sources.length > 0 && (
@@ -2123,14 +1585,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             </button>
             <button
               type="button"
-              onClick={handleCopyApaCitation}
-              className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white inline-flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <BookMarked className="w-3.5 h-3.5" />
-              <span>{copiedApa ? 'Cita copiada' : 'Citar APA'}</span>
-            </button>
-            <button
-              type="button"
               onClick={() =>
                 setQuoteShare({
                   text: post.subtitle || post.title,
@@ -2201,7 +1655,15 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               Los comentarios están deshabilitados para esta publicación.
             </p>
           ) : (
-            <CommentsSection post={post} />
+            <Suspense
+              fallback={
+                <div className="mt-10 pt-6 border-t border-neutral-300 dark:border-neutral-800 text-xs text-neutral-500">
+                  Cargando conversación...
+                </div>
+              }
+            >
+              <CommentsSection post={post} />
+            </Suspense>
           )}
         </div>
 
@@ -2220,92 +1682,56 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         )}
       </div>
 
-      {/* Zoomable Infographic Lightbox */}
-      {infographicOpen && post.coverImage && (
-        <div className="fixed inset-0 z-50 bg-black/95 text-white flex flex-col p-4 sm:p-8" role="dialog" aria-modal="true">
-          <div className="flex items-center justify-between">
-            <span className="font-display text-xs uppercase tracking-widest text-neutral-300">
-              Infografía ampliada · {post.title}
-            </span>
-            <button
-              type="button"
-              onClick={() => setInfographicOpen(false)}
-              aria-label="Cerrar visor"
-              className="p-2 rounded-full hover:bg-neutral-800 cursor-pointer"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-auto flex items-center justify-center my-4">
-            <img
-              src={sanitizeExternalUrl(parseMediaUrlMeta(post.coverImage).cleanUrl)}
-              alt={post.coverAlt || post.title}
-              referrerPolicy="no-referrer"
-              className="max-w-full max-h-full object-contain rounded-xl"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Lightbox Modal for Galleries */}
-      {lightboxIdx !== null && post.galleryItems && post.galleryItems[lightboxIdx] && (
-        <div className="fixed inset-0 z-50 bg-black/95 text-white flex flex-col justify-between p-4 sm:p-8" role="dialog" aria-modal="true">
-          <div className="flex items-center justify-between">
-            <span className="font-display text-xs uppercase tracking-widest text-neutral-400 font-tabular">
-              Fotografía {lightboxIdx + 1} de {post.galleryItems.length}
-            </span>
-            <button
-              type="button"
-              onClick={() => setLightboxIdx(null)}
-              aria-label="Cerrar visor"
-              className="p-2 rounded-full hover:bg-neutral-800 cursor-pointer"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          <div className="relative flex-1 flex items-center justify-center my-4 overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setLightboxIdx((lightboxIdx - 1 + post.galleryItems!.length) % post.galleryItems!.length)}
-              aria-label="Imagen anterior"
-              className="absolute left-2 p-3 rounded-full bg-black/60 hover:bg-black cursor-pointer z-10"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-            <img
-              src={sanitizeExternalUrl(parseMediaUrlMeta(post.galleryItems[lightboxIdx].url).cleanUrl)}
-              alt={post.galleryItems[lightboxIdx].alt}
-              referrerPolicy="no-referrer"
-              className="max-h-[75vh] max-w-full object-contain rounded-xl"
-            />
-            <button
-              type="button"
-              onClick={() => setLightboxIdx((lightboxIdx + 1) % post.galleryItems!.length)}
-              aria-label="Siguiente imagen"
-              className="absolute right-2 p-3 rounded-full bg-black/60 hover:bg-black cursor-pointer z-10"
-            >
-              <ChevronRight className="w-6 h-6" />
-            </button>
-          </div>
-          <div className="max-w-3xl mx-auto text-center space-y-1">
-            <p className="text-sm text-neutral-200">{post.galleryItems[lightboxIdx].caption}</p>
-            <p className="text-xs font-display uppercase tracking-wider text-neutral-400">
-              {post.galleryItems[lightboxIdx].credit}
-            </p>
-          </div>
-        </div>
-      )}
+      {/* Unified Zoom + Swipe Gallery / Infographic / Standalone Image Lightbox */}
+      <GalleryLightbox
+        isOpen={Boolean(
+          (infographicOpen && post.coverImage) ||
+            (lightboxIdx !== null && post.galleryItems && post.galleryItems.length > 0) ||
+            standaloneLightbox
+        )}
+        initialIndex={infographicOpen || standaloneLightbox ? 0 : lightboxIdx || 0}
+        items={
+          infographicOpen && post.coverImage
+            ? [
+                {
+                  id: `${post.id}_infographic`,
+                  url: post.coverImage,
+                  alt: post.coverAlt || post.title,
+                  caption: post.title,
+                  credit: post.coverCredit,
+                },
+              ]
+            : standaloneLightbox
+            ? [standaloneLightbox]
+            : (post.galleryItems || []).map((g) => ({
+                id: g.id,
+                url: g.url,
+                alt: g.alt || g.caption,
+                caption: g.caption,
+                credit: g.credit,
+              }))
+        }
+        onClose={() => {
+          setInfographicOpen(false);
+          setLightboxIdx(null);
+          setStandaloneLightbox(null);
+        }}
+      />
 
       {/* Quote Share Modal */}
-      <QuoteShareModal
-        open={Boolean(quoteShare)}
-        quoteText={quoteShare?.text || ''}
-        quoteAuthor={quoteShare?.author}
-        articleTitle={post.title}
-        siteName={siteConfig.siteName}
-        primaryColor={siteConfig.primaryColor}
-        onClose={() => setQuoteShare(null)}
-      />
+      {quoteShare && (
+        <Suspense fallback={null}>
+          <QuoteShareModal
+            open={Boolean(quoteShare)}
+            quoteText={quoteShare.text || ''}
+            quoteAuthor={quoteShare.author}
+            articleTitle={post.title}
+            siteName={siteConfig.siteName}
+            primaryColor={siteConfig.primaryColor}
+            onClose={() => setQuoteShare(null)}
+          />
+        </Suspense>
+      )}
 
       {/* Report Content Modal */}
       {reportOpen && (

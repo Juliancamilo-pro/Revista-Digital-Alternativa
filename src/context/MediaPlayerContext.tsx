@@ -19,11 +19,16 @@ interface MediaPlayerContextValue {
   currentTime: number;
   duration: number;
   playbackRate: number;
+  volume: number;
+  isMuted: boolean;
+  playbackError: boolean;
   playTrack: (track: AudioTrackItem, nextQueue?: AudioTrackItem[]) => void;
   togglePlayPause: () => void;
   seekTo: (seconds: number) => void;
   skipBy: (deltaSeconds: number) => void;
   setPlaybackRate: (rate: number) => void;
+  setVolume: (vol: number) => void;
+  toggleMute: () => void;
   playNextInQueue: () => void;
   closePlayer: () => void;
 }
@@ -39,6 +44,9 @@ export const MediaPlayerProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRateState] = useState(1);
+  const [volume, setVolumeState] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackError, setPlaybackError] = useState(false);
 
   const playNextInQueue = useCallback(() => {
     if (!currentTrack || queue.length === 0) {
@@ -51,6 +59,7 @@ export const MediaPlayerProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setCurrentTrack(next);
       setCurrentTime(0);
       setDuration(0);
+      setPlaybackError(false);
       setIsPlaying(true);
     } else {
       setIsPlaying(false);
@@ -61,29 +70,34 @@ export const MediaPlayerProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const el = audioRef.current;
     if (!el || !currentTrack) return;
     el.playbackRate = playbackRate;
+    el.volume = volume;
+    el.muted = isMuted;
     if (isPlaying) {
       el.play().catch(() => setIsPlaying(false));
     } else {
       el.pause();
     }
-  }, [currentTrack, isPlaying, playbackRate]);
+  }, [currentTrack, isPlaying, playbackRate, volume, isMuted]);
 
   const playTrack = useCallback((track: AudioTrackItem, nextQueue?: AudioTrackItem[]) => {
     if (nextQueue) {
       setQueue(nextQueue);
     }
     if (currentTrack?.postId === track.postId && currentTrack?.mediaUrl === track.mediaUrl) {
+      setPlaybackError(false);
       setIsPlaying((prev) => !prev);
       return;
     }
     setCurrentTrack(track);
     setCurrentTime(0);
     setDuration(0);
+    setPlaybackError(false);
     setIsPlaying(true);
   }, [currentTrack]);
 
   const togglePlayPause = useCallback(() => {
     if (!currentTrack) return;
+    setPlaybackError(false);
     setIsPlaying((prev) => !prev);
   }, [currentTrack]);
 
@@ -112,11 +126,32 @@ export const MediaPlayerProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, []);
 
+  const setVolume = useCallback((nextVol: number) => {
+    const clamped = Math.max(0, Math.min(1, nextVol));
+    setVolumeState(clamped);
+    if (clamped > 0 && isMuted) {
+      setIsMuted(false);
+    }
+    if (audioRef.current) {
+      audioRef.current.volume = clamped;
+      if (clamped > 0) audioRef.current.muted = false;
+    }
+  }, [isMuted]);
+
+  const toggleMute = useCallback(() => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      if (audioRef.current) audioRef.current.muted = next;
+      return next;
+    });
+  }, []);
+
   const closePlayer = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause();
     }
     setIsPlaying(false);
+    setPlaybackError(false);
     setCurrentTrack(null);
     setCurrentTime(0);
     setDuration(0);
@@ -131,11 +166,16 @@ export const MediaPlayerProvider: React.FC<{ children: React.ReactNode }> = ({ c
         currentTime,
         duration,
         playbackRate,
+        volume,
+        isMuted,
+        playbackError,
         playTrack,
         togglePlayPause,
         seekTo,
         skipBy,
         setPlaybackRate,
+        setVolume,
+        toggleMute,
         playNextInQueue,
         closePlayer,
       }}
@@ -150,9 +190,14 @@ export const MediaPlayerProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (audioRef.current) setCurrentTime(audioRef.current.currentTime || 0);
         }}
         onLoadedMetadata={() => {
+          setPlaybackError(false);
           if (audioRef.current && Number.isFinite(audioRef.current.duration)) {
             setDuration(audioRef.current.duration);
           }
+        }}
+        onError={() => {
+          setIsPlaying(false);
+          setPlaybackError(true);
         }}
         onEnded={playNextInQueue}
         className="hidden"

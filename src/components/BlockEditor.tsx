@@ -10,36 +10,24 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import {
-  ArrowDown,
-  ArrowUp,
-  BookMarked,
-  Captions,
   Check,
   Copy,
   CopyPlus,
-  Crosshair,
   Eye,
   FileText,
   History,
-  Image as ImageIcon,
   Layers,
   ListChecks,
-  Monitor,
   Plus,
   RotateCcw,
   Save,
   Send,
-  ShieldAlert,
-  Smartphone,
   Sparkles,
-  Tablet,
-  Trash2,
-  Upload,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
-import { buildApaReferenceString } from '../lib/apa';
 import { db, OperationType } from '../lib/firebase';
+import { inspectMediaUrl } from '../lib/mediaEmbeds';
 import {
   diagnosePostSaveFailure,
   estimateUtf8JsonBytes,
@@ -50,11 +38,8 @@ import {
   validatePostDocumentAgainstRules,
 } from '../lib/postValidation';
 import {
-  encodeMediaUrlWithMeta,
   estimateReadTime,
-  formatSecondsToTimestamp,
   generateId,
-  parseMediaUrlMeta,
   sanitizeExternalUrl,
   slugify,
   stripUndefinedDeep,
@@ -65,7 +50,6 @@ import {
 } from '../lib/utils';
 import {
   AdminIdentityId,
-  ApaReference,
   ContentBlock,
   ContentBlockType,
   CorrectionEntry,
@@ -82,6 +66,12 @@ import {
 } from '../types/editorial';
 import { EditorialImage } from './EditorialImage';
 import { VerifiedBadge } from './VerifiedBadge';
+import { BlockItemEditor } from './editor/BlockItemEditor';
+import { CoverFramingSection } from './editor/CoverFramingSection';
+import { EditorPreview } from './editor/EditorPreview';
+import { ImageCropModal } from './editor/ImageCropModal';
+import { MediaSectionEditor } from './editor/MediaSectionEditor';
+import { MediaUploader } from './editor/MediaUploader';
 
 interface BlockEditorProps {
   initialPost?: Post | null;
@@ -158,17 +148,6 @@ function buildGenreTemplate(templateKey: GenreTemplateKey): {
   }
 }
 
-function parseTimestampToSec(raw: string): number {
-  const clean = raw.trim();
-  if (!clean) return 0;
-  if (/^\d+$/.test(clean)) return Math.max(0, Number(clean));
-  const parts = clean.split(':').map((p) => Number(p));
-  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return 0;
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return 0;
-}
-
 export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, onCancel }) => {
   const {
     firebaseUser,
@@ -212,10 +191,8 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
   const [paragraphIndent, setParagraphIndent] = useState(Boolean(initialPost?.paragraphIndent));
   const [pinnedInFeed, setPinnedInFeed] = useState(Boolean(initialPost?.pinnedInFeed));
 
-  // Academic APA 7 mode & Table of Contents
-  const [apaMode, setApaMode] = useState(Boolean(initialPost?.apaMode));
+  // Table of Contents
   const [showTableOfContents, setShowTableOfContents] = useState(Boolean(initialPost?.showTableOfContents));
-  const [apaReferences, setApaReferences] = useState<ApaReference[]>(initialPost?.apaReferences || []);
 
   const [coverImage, setCoverImage] = useState(initialPost?.coverImage || '');
   const [coverAlt, setCoverAlt] = useState(initialPost?.coverAlt || '');
@@ -281,6 +258,12 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
   const [autoSavedAt, setAutoSavedAt] = useState<string>('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [missingAltError, setMissingAltError] = useState(false);
+  const [cropTarget, setCropTarget] = useState<{
+    kind: 'cover' | 'block';
+    blockId?: string;
+    srcUrl: string;
+  } | null>(null);
   const [diagnostic, setDiagnostic] = useState<PostSaveDiagnosis | null>(null);
   const [copiedDiag, setCopiedDiag] = useState(false);
 
@@ -306,14 +289,12 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
         if (Array.isArray(parsed.tags)) setTags(parsed.tags);
         if (Array.isArray(parsed.keyPoints)) setKeyPoints(parsed.keyPoints);
         if (Array.isArray(parsed.sources)) setSources(parsed.sources);
-        if (Array.isArray(parsed.apaReferences)) setApaReferences(parsed.apaReferences);
         if (typeof parsed.seoDescription === 'string') setSeoDescription(parsed.seoDescription);
         if (typeof parsed.sensitiveContent === 'boolean') setSensitiveContent(parsed.sensitiveContent);
         if (typeof parsed.sensitiveWarning === 'string') setSensitiveWarning(parsed.sensitiveWarning);
         if (typeof parsed.coverImage === 'string') setCoverImage(parsed.coverImage);
         if (typeof parsed.mediaUrl === 'string') setMediaUrl(parsed.mediaUrl);
         if (typeof parsed.documentTitle === 'string') setDocumentTitle(parsed.documentTitle);
-        if (typeof parsed.apaMode === 'boolean') setApaMode(parsed.apaMode);
       }
     } catch {
       // ignore
@@ -336,8 +317,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
             tags,
             keyPoints,
             sources,
-            apaReferences,
-            apaMode,
             seoDescription,
             sensitiveContent,
             sensitiveWarning,
@@ -361,8 +340,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     tags,
     keyPoints,
     sources,
-    apaReferences,
-    apaMode,
     seoDescription,
     sensitiveContent,
     sensitiveWarning,
@@ -526,37 +503,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     }
   };
 
-  const handleUploadMultipleGallery = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setError('');
-    const list = Array.from(files).slice(0, 20);
-    const folder = `posts/${firebaseUser?.uid || 'anon'}`;
-    for (let i = 0; i < list.length; i++) {
-      const f = list[i];
-      setUploadingInfo(`Subiendo foto ${i + 1} de ${list.length}...`);
-      setUploadProgress(Math.round(((i + 0.1) / list.length) * 100));
-      try {
-        const res = await uploadMediaAsset(
-          f,
-          folder,
-          (pct) => {
-            const overall = Math.round(((i + pct / 100) / list.length) * 100);
-            setUploadProgress(overall);
-          },
-          'gallery'
-        );
-        setGalleryItems((prev) => [
-          ...prev,
-          { id: generateId('gal'), url: res.url, alt: f.name, caption: '', credit: '' },
-        ]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : `No se pudo subir ${f.name}`);
-      }
-    }
-    setUploadingInfo(`${list.length} imagen(es) procesadas.`);
-    setTimeout(() => setUploadProgress(null), 800);
-  };
-
   const handleUploadDocument = async (file: File, target: 'post' | string) => {
     setError('');
     setUploadProgress(5);
@@ -636,20 +582,73 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     setBlocks(next);
   };
 
-  const coverMeta = useMemo(() => parseMediaUrlMeta(coverImage), [coverImage]);
+  const collectMissingAlts = (): string[] => {
+    const missing: string[] = [];
+    if (coverImage.trim() && !coverAlt.trim()) {
+      missing.push('Imagen de portada');
+    }
+    galleryItems.forEach((g, idx) => {
+      if (g.url.trim() && !g.alt.trim()) {
+        missing.push(`Galería foto #${idx + 1}`);
+      }
+    });
+    blocks.forEach((b, idx) => {
+      if (b.type === 'image' && b.imageUrl?.trim() && !b.imageAlt?.trim()) {
+        missing.push(`Bloque #${idx + 1} (Imagen)`);
+      }
+      if (b.type === 'carousel') {
+        (b.carouselItems || []).forEach((ci, cIdx) => {
+          if (ci.url.trim() && !ci.alt.trim()) {
+            missing.push(`Bloque #${idx + 1} carrusel foto #${cIdx + 1}`);
+          }
+        });
+      }
+    });
+    return missing;
+  };
 
-  const handleCoverFocalClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!coverImage.trim()) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const fpX = Math.max(5, Math.min(95, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
-    const fpY = Math.max(5, Math.min(95, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
-    setCoverImage(encodeMediaUrlWithMeta(coverImage, { fpX, fpY }));
+  const handleAutoFillMissingAlts = () => {
+    const fallbackBase = title.trim() || 'Fotografía editorial de Revista Digital Alternativa';
+    if (coverImage.trim() && !coverAlt.trim()) {
+      setCoverAlt(fallbackBase.slice(0, 280));
+    }
+    setGalleryItems((prev) =>
+      prev.map((g, idx) =>
+        g.url.trim() && !g.alt.trim()
+          ? { ...g, alt: (g.caption.trim() || `${fallbackBase} – imagen ${idx + 1}`).slice(0, 280) }
+          : g
+      )
+    );
+    setBlocks((prev) =>
+      prev.map((b, idx) => {
+        if (b.type === 'image' && b.imageUrl?.trim() && !b.imageAlt?.trim()) {
+          return {
+            ...b,
+            imageAlt: (b.imageCaption?.trim() || `${fallbackBase} – figura ${idx + 1}`).slice(0, 280),
+          };
+        }
+        if (b.type === 'carousel' && Array.isArray(b.carouselItems)) {
+          return {
+            ...b,
+            carouselItems: b.carouselItems.map((ci, cIdx) =>
+              ci.url.trim() && !ci.alt.trim()
+                ? { ...ci, alt: (ci.caption.trim() || `${fallbackBase} – foto ${cIdx + 1}`).slice(0, 280) }
+                : ci
+            ),
+          };
+        }
+        return b;
+      })
+    );
+    setMissingAltError(false);
+    setError('');
+    setNotice('Se completaron automáticamente los textos alternativos faltantes. Puedes editarlos si deseas más detalle.');
   };
 
   const handleSave = async (requestedStatus: PostStatus) => {
     setError('');
     setNotice('');
+    setMissingAltError(false);
     setDiagnostic(null);
     setCopiedDiag(false);
     if (!firebaseUser) {
@@ -670,6 +669,36 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       const targetTime = scheduledForInput ? new Date(scheduledForInput).getTime() : NaN;
       if (!scheduledForInput || Number.isNaN(targetTime)) {
         setError('Selecciona una fecha y hora válida para programar la publicación.');
+        return;
+      }
+    }
+
+    if ((type === 'video' || type === 'audio' || type === 'document') && mediaUrl.trim()) {
+      const checkMedia = inspectMediaUrl(mediaUrl.trim(), type);
+      if (!checkMedia.isValid) {
+        setError(`Enlace multimedia principal inválido: ${checkMedia.errorReason || 'Verifica la URL.'}`);
+        return;
+      }
+    }
+
+    for (let i = 0; i < blocks.length; i++) {
+      const blk = blocks[i];
+      if (blk.type === 'social_embed' && blk.embedUrl?.trim()) {
+        const checkEmbed = inspectMediaUrl(blk.embedUrl.trim(), 'social');
+        if (!checkEmbed.isValid) {
+          setError(`Bloque #${i + 1} (incrustación social) con URL inválida: ${checkEmbed.errorReason || 'Verifica la URL.'}`);
+          return;
+        }
+      }
+    }
+
+    if (requestedStatus === 'published' || requestedStatus === 'scheduled') {
+      const missingAlts = collectMissingAlts();
+      if (missingAlts.length > 0) {
+        setMissingAltError(true);
+        setError(
+          `Para publicar es obligatorio describir el texto alternativo (alt) para lectores con discapacidad visual. Faltan: ${missingAlts.join(', ')}.`
+        );
         return;
       }
     }
@@ -747,19 +776,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
           ...(cleanUrl ? { url: cleanUrl.slice(0, 500) } : {}),
         };
       });
-    const cleanedApaRefs = apaReferences
-      .filter((r) => r.author.trim() || r.title.trim())
-      .slice(0, 60)
-      .map((r) => ({
-        id: r.id,
-        author: r.author.trim().slice(0, 220),
-        year: r.year.trim().slice(0, 20),
-        title: r.title.trim().slice(0, 300),
-        publisher: r.publisher.trim().slice(0, 200),
-        ...(sanitizeExternalUrl(r.url || '') ? { url: sanitizeExternalUrl(r.url || '').slice(0, 500) } : {}),
-        ...(r.accessDate?.trim() ? { accessDate: r.accessDate.trim().slice(0, 60) } : {}),
-        formatted: buildApaReferenceString(r).slice(0, 900),
-      }));
     const cleanedChapters = mediaChapters
       .filter((c) => c.label.trim().length > 0)
       .slice(0, 50)
@@ -819,7 +835,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       coverLayout,
       headerStyle,
       paragraphIndent: Boolean(paragraphIndent),
-      apaMode: Boolean(apaMode),
       showTableOfContents: Boolean(showTableOfContents),
       blocks: cleanBlocks,
       sensitiveContent: Boolean(sensitiveContent),
@@ -858,7 +873,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       setOrClearOptional(target, 'coverAlt', coverAlt ? coverAlt.slice(0, 300) : '', isEdit);
       setOrClearOptional(target, 'coverCredit', coverCredit ? coverCredit.slice(0, 200) : '', isEdit);
       setOrClearOptional(target, 'accentColor', validAccentColor, isEdit);
-      setOrClearOptional(target, 'apaReferences', cleanedApaRefs.length > 0 ? stripUndefinedDeep(cleanedApaRefs) : [], isEdit);
       setOrClearOptional(target, 'galleryItems', cleanGalleryItems, isEdit);
       setOrClearOptional(target, 'corrections', cleanCorrections, isEdit);
       setOrClearOptional(target, 'keyPoints', cleanedKeyPoints, isEdit);
@@ -934,9 +948,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       headerStyle,
       ...(validAccentColor ? { accentColor: validAccentColor } : {}),
       paragraphIndent: Boolean(paragraphIndent),
-      apaMode: Boolean(apaMode),
       showTableOfContents: Boolean(showTableOfContents),
-      ...(cleanedApaRefs.length > 0 ? { apaReferences: cleanedApaRefs } : {}),
       blocks: cleanBlocks,
       ...(cleanGalleryItems.length > 0 ? { galleryItems: cleanGalleryItems } : {}),
       ...(cleanCorrections.length > 0 ? { corrections: cleanCorrections } : {}),
@@ -997,12 +1009,14 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
         };
         applyOptionals(updatePayload, true, existingRaw);
 
-        // Normalización segura en update: eliminar claves heredadas fuera de hasOnly y completar faltantes de hasAll
+        // Normalización segura en update: eliminar claves heredadas fuera de hasOnly (incluidos apaMode/apaReferences) y completar faltantes
         for (const key of Object.keys(existingRaw)) {
           if (!POST_ALLOWED_KEYS_SET.has(key)) {
             updatePayload[key] = deleteField();
           }
         }
+        if ('apaMode' in existingRaw) updatePayload.apaMode = deleteField();
+        if ('apaReferences' in existingRaw) updatePayload.apaReferences = deleteField();
         if (
           'audioDurationSec' in existingRaw &&
           (typeof existingRaw.audioDurationSec !== 'number' ||
@@ -1242,6 +1256,15 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       {error && (
         <div role="alert" className="rounded-xl p-4 border border-red-500 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 text-sm space-y-2.5">
           <p className="font-semibold">{error}</p>
+          {missingAltError && (
+            <button
+              type="button"
+              onClick={handleAutoFillMissingAlts}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] font-display text-xs font-bold uppercase tracking-wider cursor-pointer"
+            >
+              Completar textos alt faltantes automáticamente
+            </button>
+          )}
           {diagnostic && (
             <div className="rounded-lg border border-red-300 dark:border-red-800/70 bg-white/80 dark:bg-[#141414] p-3 text-xs space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1509,10 +1532,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
 
             <div className="flex flex-wrap gap-5 pt-1 text-xs">
               <label className="inline-flex items-center gap-2 cursor-pointer font-semibold">
-                <input type="checkbox" checked={apaMode} onChange={(e) => setApaMode(e.target.checked)} />
-                <span>Modo académico / citas APA 7 (citas, figuras y bibliografía)</span>
-              </label>
-              <label className="inline-flex items-center gap-2 cursor-pointer font-semibold">
                 <input
                   type="checkbox"
                   checked={showTableOfContents}
@@ -1531,467 +1550,94 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
             </div>
           </div>
 
-          {/* Cover Image with optimization & Focal Point Picker */}
-          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-display text-xs font-bold uppercase tracking-wider">
-                {type === 'infographic' ? 'Imagen principal de la infografía (alta nitidez)' : 'Imagen de portada'}
-              </span>
-              <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black text-xs font-display font-bold uppercase cursor-pointer">
-                <Upload className="w-3.5 h-3.5" />
-                <span>Subir y optimizar</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleUploadAsset(f, 'cover');
-                  }}
-                />
-              </label>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <input
-                type="text"
-                value={coverImage}
-                onChange={(e) => setCoverImage(e.target.value)}
-                placeholder="URL de imagen de portada"
-                className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-              />
-              <input
-                type="text"
-                value={coverAlt}
-                onChange={(e) => setCoverAlt(e.target.value)}
-                placeholder="Texto alternativo (accesibilidad)"
-                className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-              />
-              <input
-                type="text"
-                value={coverCredit}
-                onChange={(e) => setCoverCredit(e.target.value)}
-                placeholder="Crédito fotográfico"
-                className="px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-              />
-            </div>
+          <CoverFramingSection
+            type={type}
+            folder={`posts/${firebaseUser?.uid || 'anon'}`}
+            coverImage={coverImage}
+            setCoverImage={setCoverImage}
+            coverAlt={coverAlt}
+            setCoverAlt={setCoverAlt}
+            coverCredit={coverCredit}
+            setCoverCredit={setCoverCredit}
+            sensitiveContent={sensitiveContent}
+            setSensitiveContent={setSensitiveContent}
+            sensitiveWarning={sensitiveWarning}
+            setSensitiveWarning={setSensitiveWarning}
+            onRequestCrop={(srcUrl) => setCropTarget({ kind: 'cover', srcUrl })}
+            onUploadNote={(info) => setUploadingInfo(info)}
+          />
 
-            {coverMeta.cleanUrl && (
-              <div className="pt-2 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
-                    <Crosshair className="w-3.5 h-3.5" />
-                    Encuadre de la portada (haz clic en el punto focal: {coverMeta.fpX}%, {coverMeta.fpY}%)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCoverImage(encodeMediaUrlWithMeta(coverImage, { fpX: 50, fpY: 50 }))}
-                    className="text-xs font-display font-bold uppercase text-neutral-500 hover:text-black dark:hover:text-white cursor-pointer"
-                  >
-                    Centrar (50%, 50%)
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
-                  <div
-                    onClick={handleCoverFocalClick}
-                    title="Haz clic sobre el sujeto principal para fijar el encuadre"
-                    className="md:col-span-6 relative aspect-[16/9] rounded-xl overflow-hidden bg-neutral-900 cursor-crosshair border border-neutral-300 dark:border-neutral-700"
-                  >
-                    <img
-                      src={sanitizeExternalUrl(coverMeta.cleanUrl)}
-                      alt={coverAlt || 'Selector de punto focal'}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                      style={{ objectPosition: `${coverMeta.fpX}% ${coverMeta.fpY}%` }}
-                    />
-                    <span
-                      aria-hidden="true"
-                      className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full border-2 border-white bg-[var(--editorial-primary)]/80 shadow-md pointer-events-none"
-                      style={{ left: `${coverMeta.fpX}%`, top: `${coverMeta.fpY}%` }}
-                    />
-                  </div>
-                  <div className="md:col-span-6 grid grid-cols-3 gap-2">
-                    <div className="space-y-1">
-                      <div className="aspect-[16/9] rounded-lg overflow-hidden bg-neutral-900 border border-neutral-300 dark:border-neutral-700">
-                        <img
-                          src={sanitizeExternalUrl(coverMeta.cleanUrl)}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          style={{ objectPosition: `${coverMeta.fpX}% ${coverMeta.fpY}%` }}
-                        />
-                      </div>
-                      <p className="text-[10px] font-display uppercase text-center text-neutral-500">16:9 Portada</p>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="aspect-[4/3] rounded-lg overflow-hidden bg-neutral-900 border border-neutral-300 dark:border-neutral-700">
-                        <img
-                          src={sanitizeExternalUrl(coverMeta.cleanUrl)}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          style={{ objectPosition: `${coverMeta.fpX}% ${coverMeta.fpY}%` }}
-                        />
-                      </div>
-                      <p className="text-[10px] font-display uppercase text-center text-neutral-500">4:3 Tarjeta</p>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="aspect-square rounded-lg overflow-hidden bg-neutral-900 border border-neutral-300 dark:border-neutral-700">
-                        <img
-                          src={sanitizeExternalUrl(coverMeta.cleanUrl)}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          style={{ objectPosition: `${coverMeta.fpX}% ${coverMeta.fpY}%` }}
-                        />
-                      </div>
-                      <p className="text-[10px] font-display uppercase text-center text-neutral-500">1:1 Cuadrado</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+          <MediaSectionEditor
+            type={type}
+            title={title}
+            coverImage={coverImage}
+            mediaUrl={mediaUrl}
+            setMediaUrl={setMediaUrl}
+            documentTitle={documentTitle}
+            setDocumentTitle={setDocumentTitle}
+            mediaDurationLabel={mediaDurationLabel}
+            setMediaDurationLabel={setMediaDurationLabel}
+            seasonNumber={seasonNumber}
+            setSeasonNumber={setSeasonNumber}
+            episodeNumber={episodeNumber}
+            setEpisodeNumber={setEpisodeNumber}
+            mediaSubtitlesUrl={mediaSubtitlesUrl}
+            setMediaSubtitlesUrl={setMediaSubtitlesUrl}
+            mediaChapters={mediaChapters}
+            setMediaChapters={setMediaChapters}
+            episodeNotes={episodeNotes}
+            setEpisodeNotes={setEpisodeNotes}
+            mediaTranscript={mediaTranscript}
+            setMediaTranscript={setMediaTranscript}
+            mediaRelatedLinks={mediaRelatedLinks}
+            setMediaRelatedLinks={setMediaRelatedLinks}
+            onUploadMedia={(file) => void handleUploadAsset(file, 'media')}
+            onUploadDocument={(file) => void handleUploadDocument(file, 'post')}
+            onUploadSubtitle={(file) => void handleUploadSubtitleFile(file)}
+          />
 
-            {/* Sensitive Content Option */}
-            <div className="pt-2 border-t border-neutral-200 dark:border-neutral-800 space-y-2">
-              <label className="inline-flex items-center gap-2 text-xs font-display font-bold uppercase cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={sensitiveContent}
-                  onChange={(e) => setSensitiveContent(e.target.checked)}
-                />
-                <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-                <span>Ocultar portada tras advertencia de contenido sensible</span>
-              </label>
-              {sensitiveContent && (
-                <input
-                  type="text"
-                  maxLength={300}
-                  value={sensitiveWarning}
-                  onChange={(e) => setSensitiveWarning(e.target.value)}
-                  placeholder="Mensaje de advertencia para lectores (ej. Imágenes fuertes de protesta o conflicto)..."
-                  className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Video / Audio / Document Main Media Field + Enhanced Audio/Video Options */}
-          {(type === 'video' || type === 'audio' || type === 'document') && (
-            <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 p-4 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-display text-xs font-bold uppercase tracking-wider">
-                  {type === 'video'
-                    ? 'Fuente de video (YouTube, Vimeo o archivo MP4)'
-                    : type === 'audio'
-                    ? 'Archivo o URL de audio / pódcast (MP3, Spotify, SoundCloud)'
-                    : 'Documento / PDF descargable principal'}
-                </span>
-                <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-400 text-xs font-display font-bold uppercase cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{type === 'document' ? 'Subir PDF / Doc' : 'Subir archivo'}</span>
-                  <input
-                    type="file"
-                    accept={
-                      type === 'video'
-                        ? 'video/*'
-                        : type === 'audio'
-                        ? 'audio/*'
-                        : 'application/pdf,.pdf,.doc,.docx'
-                    }
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      if (type === 'document') handleUploadDocument(f, 'post');
-                      else handleUploadAsset(f, 'media');
-                    }}
-                  />
-                </label>
-              </div>
-              {type === 'document' && (
-                <input
-                  type="text"
-                  maxLength={200}
-                  value={documentTitle}
-                  onChange={(e) => setDocumentTitle(e.target.value)}
-                  placeholder="Título del documento descargable"
-                  className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                />
-              )}
-              <input
-                type="text"
-                value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-                placeholder={
-                  type === 'video'
-                    ? 'https://www.youtube.com/watch?v=... o https://vimeo.com/...'
-                    : type === 'audio'
-                    ? 'https://.../episodio.mp3, Spotify o SoundCloud'
-                    : 'https://.../documento.pdf'
-                }
-                className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-              />
-
-              {(type === 'video' || type === 'audio') && (
-                <div className="pt-2 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div>
-                      <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
-                        Duración visible
-                      </label>
-                      <input
-                        type="text"
-                        maxLength={40}
-                        value={mediaDurationLabel}
-                        onChange={(e) => setMediaDurationLabel(e.target.value)}
-                        placeholder="Ej. 24:15"
-                        className="w-full px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                    </div>
-                    {type === 'audio' && (
-                      <>
-                        <div>
-                          <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
-                            Temporada (opcional)
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={999}
-                            value={seasonNumber}
-                            onChange={(e) => setSeasonNumber(e.target.value)}
-                            placeholder="1"
-                            className="w-full px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
-                            Episodio (opcional)
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={9999}
-                            value={episodeNumber}
-                            onChange={(e) => setEpisodeNumber(e.target.value)}
-                            placeholder="1"
-                            className="w-full px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                          />
-                        </div>
-                      </>
-                    )}
-                    {type === 'video' && (
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
-                          Subtítulos WebVTT (.vtt opcional)
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="url"
-                            value={mediaSubtitlesUrl}
-                            onChange={(e) => setMediaSubtitlesUrl(e.target.value)}
-                            placeholder="URL archivo .vtt"
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                          />
-                          <label className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#111111] text-white text-xs font-display font-bold uppercase cursor-pointer shrink-0">
-                            <Captions className="w-3.5 h-3.5" />
-                            <span>Subir .vtt</span>
-                            <input
-                              type="file"
-                              accept=".vtt,text/vtt"
-                              className="hidden"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) handleUploadSubtitleFile(f);
-                              }}
-                            />
-                          </label>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Interactive Chapters */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-display text-[11px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
-                        Capítulos y marcas de tiempo ({mediaChapters.length})
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setMediaChapters((prev) => [
-                            ...prev,
-                            { id: generateId('chap'), timeSec: 0, label: '', description: '' },
-                          ])
-                        }
-                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-display font-bold uppercase cursor-pointer"
-                      >
-                        + Añadir capítulo
-                      </button>
-                    </div>
-                    {mediaChapters.map((chap, cIdx) => (
-                      <div key={chap.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                        <input
-                          type="text"
-                          defaultValue={formatSecondsToTimestamp(chap.timeSec)}
-                          onBlur={(e) => {
-                            const sec = parseTimestampToSec(e.target.value);
-                            setMediaChapters((prev) =>
-                              prev.map((x, i) => (i === cIdx ? { ...x, timeSec: sec } : x))
-                            );
-                          }}
-                          placeholder="02:30"
-                          className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs font-tabular"
-                        />
-                        <input
-                          type="text"
-                          value={chap.label}
-                          onChange={(e) =>
-                            setMediaChapters((prev) =>
-                              prev.map((x, i) => (i === cIdx ? { ...x, label: e.target.value } : x))
-                            )
-                          }
-                          placeholder="Título del capítulo"
-                          className="sm:col-span-4 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <input
-                          type="text"
-                          value={chap.description || ''}
-                          onChange={(e) =>
-                            setMediaChapters((prev) =>
-                              prev.map((x, i) => (i === cIdx ? { ...x, description: e.target.value } : x))
-                            )
-                          }
-                          placeholder="Nota breve (opcional)"
-                          className="sm:col-span-5 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setMediaChapters((prev) => prev.filter((_, i) => i !== cIdx))}
-                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {type === 'audio' && (
-                    <div>
-                      <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
-                        Notas del episodio (opcional)
-                      </label>
-                      <textarea
-                        rows={2}
-                        maxLength={10000}
-                        value={episodeNotes}
-                        onChange={(e) => setEpisodeNotes(e.target.value)}
-                        placeholder="Créditos de producción, música, temas abordados..."
-                        className="w-full px-3 py-2 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-[11px] font-display font-bold uppercase text-neutral-500 mb-1">
-                      Transcripción completa (desplegable y accesible, opcional)
-                    </label>
-                    <textarea
-                      rows={3}
-                      maxLength={40000}
-                      value={mediaTranscript}
-                      onChange={(e) => setMediaTranscript(e.target.value)}
-                      placeholder="Pega aquí la transcripción literal del video o episodio..."
-                      className="w-full px-3 py-2 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                  </div>
-
-                  {/* Related links inside player */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-display text-[11px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
-                        Enlaces mencionados en el video / pódcast
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setMediaRelatedLinks((prev) => [...prev, { label: '', url: '' }])}
-                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-display font-bold uppercase cursor-pointer"
-                      >
-                        + Añadir enlace
-                      </button>
-                    </div>
-                    {mediaRelatedLinks.map((lnk, lIdx) => (
-                      <div key={lIdx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                        <input
-                          type="text"
-                          value={lnk.label}
-                          onChange={(e) =>
-                            setMediaRelatedLinks((prev) =>
-                              prev.map((x, i) => (i === lIdx ? { ...x, label: e.target.value } : x))
-                            )
-                          }
-                          placeholder="Etiqueta del recurso"
-                          className="sm:col-span-5 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <input
-                          type="url"
-                          value={lnk.url || ''}
-                          onChange={(e) =>
-                            setMediaRelatedLinks((prev) =>
-                              prev.map((x, i) => (i === lIdx ? { ...x, url: e.target.value } : x))
-                            )
-                          }
-                          placeholder="https://..."
-                          className="sm:col-span-6 px-2.5 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setMediaRelatedLinks((prev) => prev.filter((_, i) => i !== lIdx))}
-                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Gallery Builder with Multi-upload */}
+          {/* Gallery Builder with Multi-upload & Drag-and-Drop */}
           {type === 'gallery' && (
             <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-display text-xs font-bold uppercase tracking-wider">
                   Fotografías de la galería ({galleryItems.length})
                 </span>
-                <div className="flex items-center gap-2">
-                  <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black text-xs font-display font-bold uppercase cursor-pointer">
-                    <ImageIcon className="w-3.5 h-3.5" />
-                    <span>Subir una o varias fotos</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => handleUploadMultipleGallery(e.target.files)}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setGalleryItems((prev) => [
-                        ...prev,
-                        { id: generateId('gal'), url: '', alt: '', caption: '', credit: '' },
-                      ])
-                    }
-                    className="px-3 py-1.5 rounded-full border border-neutral-400 text-xs font-display font-bold uppercase cursor-pointer"
-                  >
-                    + Por URL
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setGalleryItems((prev) => [
+                      ...prev,
+                      { id: generateId('gal'), url: '', alt: '', caption: '', credit: '' },
+                    ])
+                  }
+                  className="px-3 py-1.5 rounded-full border border-neutral-400 text-xs font-display font-bold uppercase cursor-pointer"
+                >
+                  + Por URL
+                </button>
               </div>
+              <MediaUploader
+                folder={`posts/${firebaseUser?.uid || 'anon'}`}
+                slot="gallery"
+                accept="image/*"
+                multiple
+                label="Arrastra aquí o selecciona varias fotografías"
+                helperText="Cada foto se comprime a WebP con detección automática de punto focal."
+                onUploaded={(results) => {
+                  setGalleryItems((prev) => [
+                    ...prev,
+                    ...results.map((r) => ({
+                      id: generateId('gal'),
+                      url: r.url,
+                      alt: r.file.name.replace(/\.[^.]+$/, ''),
+                      caption: '',
+                      credit: '',
+                    })),
+                  ]);
+                }}
+              />
               {galleryItems.map((g, idx) => (
-                <div key={g.id} className="grid grid-cols-1 sm:grid-cols-4 gap-2 border-t border-neutral-200 dark:border-neutral-800 pt-2">
+                <div key={g.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 border-t border-neutral-200 dark:border-neutral-800 pt-2 items-center">
                   <input
                     type="text"
                     value={g.url}
@@ -1999,7 +1645,20 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                       setGalleryItems((prev) => prev.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x)))
                     }
                     placeholder="URL de imagen"
-                    className="px-2 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    className="sm:col-span-3 px-2 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  />
+                  <input
+                    type="text"
+                    value={g.alt}
+                    onChange={(e) =>
+                      setGalleryItems((prev) => prev.map((x, i) => (i === idx ? { ...x, alt: e.target.value } : x)))
+                    }
+                    placeholder="Texto alt (obligatorio)"
+                    className={`sm:col-span-3 px-2 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border text-xs ${
+                      g.url.trim() && !g.alt.trim()
+                        ? 'border-amber-500'
+                        : 'border-neutral-300 dark:border-neutral-700'
+                    }`}
                   />
                   <input
                     type="text"
@@ -2008,7 +1667,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                       setGalleryItems((prev) => prev.map((x, i) => (i === idx ? { ...x, caption: e.target.value } : x)))
                     }
                     placeholder="Pie de foto"
-                    className="px-2 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    className="sm:col-span-3 px-2 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
                   />
                   <input
                     type="text"
@@ -2017,12 +1676,12 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                       setGalleryItems((prev) => prev.map((x, i) => (i === idx ? { ...x, credit: e.target.value } : x)))
                     }
                     placeholder="Crédito"
-                    className="px-2 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                    className="sm:col-span-2 px-2 py-1.5 rounded-lg bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
                   />
                   <button
                     type="button"
                     onClick={() => setGalleryItems((prev) => prev.filter((_, i) => i !== idx))}
-                    className="text-xs text-red-600 font-display uppercase font-bold cursor-pointer"
+                    className="sm:col-span-1 text-xs text-red-600 font-display uppercase font-bold cursor-pointer"
                   >
                     Quitar
                   </button>
@@ -2079,999 +1738,18 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
             </div>
 
             {blocks.map((block, idx) => (
-              <div key={block.id} className="rounded-xl border border-neutral-300 dark:border-neutral-800 p-3.5 space-y-2.5 bg-[#F8F6F1]/50 dark:bg-[#181818]">
-                <div className="flex items-center justify-between gap-2 text-xs font-display uppercase tracking-wider">
-                  <span className="font-bold text-[var(--editorial-primary)]">
-                    {idx + 1}. {block.type === 'paragraph' && 'Párrafo'}
-                    {block.type === 'heading' && 'Subtítulo'}
-                    {block.type === 'quote' && 'Cita destacada'}
-                    {block.type === 'speaker_quote' && 'Cita de entrevistado'}
-                    {block.type === 'image' && 'Imagen intercalada'}
-                    {block.type === 'callout' && 'Recuadro destacado'}
-                    {block.type === 'context_box' && 'Caja de contexto'}
-                    {block.type === 'list' && 'Lista'}
-                    {block.type === 'document' && 'Documento / PDF adjunto'}
-                    {block.type === 'footnote' && `Nota al pie [${block.footnoteNumber || 1}]`}
-                    {block.type === 'timeline' && 'Línea de tiempo'}
-                    {block.type === 'table' && 'Tabla de datos'}
-                    {block.type === 'columns' && 'Columnas paralelas'}
-                    {block.type === 'before_after' && 'Comparativa Antes / Después'}
-                    {block.type === 'metrics' && 'Métricas / Cifras clave'}
-                    {block.type === 'carousel' && 'Carrusel fotográfico'}
-                    {block.type === 'divider' && 'Separador'}
-                    {block.type === 'social_embed' && 'Incrustación social'}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {block.type === 'paragraph' && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setBlocks((prev) =>
-                            prev.map((b, i) =>
-                              i === idx ? { ...b, text: `${b.text || ''} (Apellido, Año)`.trimStart() } : b
-                            )
-                          )
-                        }
-                        title="Insertar cita APA en el texto"
-                        className="px-2 py-0.5 rounded border border-neutral-300 dark:border-neutral-700 text-[10px] font-bold hover:border-[var(--editorial-primary)] cursor-pointer mr-1"
-                      >
-                        + (Cita APA)
-                      </button>
-                    )}
-                    <button type="button" onClick={() => moveBlock(idx, -1)} aria-label="Subir bloque" className="p-1 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer">
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button type="button" onClick={() => moveBlock(idx, 1)} aria-label="Bajar bloque" className="p-1 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer">
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBlocks((prev) => prev.filter((_, i) => i !== idx))}
-                      aria-label="Eliminar bloque"
-                      className="p-1 text-red-600 hover:bg-red-100 dark:hover:bg-red-950 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {(block.type === 'paragraph' || block.type === 'footnote') && (
-                  <textarea
-                    rows={block.type === 'paragraph' ? 4 : 2}
-                    value={block.text || ''}
-                    onChange={(e) =>
-                      setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                    }
-                    placeholder={block.type === 'paragraph' ? 'Escribe el párrafo aquí...' : 'Texto de la fuente o nota al pie...'}
-                    className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
-                  />
-                )}
-
-                {block.type === 'heading' && (
-                  <div className="flex gap-2">
-                    <select
-                      value={block.level || 2}
-                      onChange={(e) =>
-                        setBlocks((prev) =>
-                          prev.map((b, i) => (i === idx ? { ...b, level: Number(e.target.value) as 2 | 3 | 4 } : b))
-                        )
-                      }
-                      className="px-2 py-2 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                    >
-                      <option value={2}>H2</option>
-                      <option value={3}>H3</option>
-                      <option value={4}>H4</option>
-                    </select>
-                    <input
-                      type="text"
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Subtítulo de sección"
-                      className="flex-1 px-3 py-2 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 font-display text-lg font-bold"
-                    />
-                  </div>
-                )}
-
-                {block.type === 'quote' && (
-                  <div className="space-y-2">
-                    <textarea
-                      rows={2}
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Texto de la cita destacada (en modo APA, >40 palabras se formatea como cita en bloque)..."
-                      className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm italic"
-                    />
-                    <input
-                      type="text"
-                      value={block.author || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, author: e.target.value } : b)))
-                      }
-                      placeholder="Autoría o referencia APA (ej. Apellido, 2024, p. 18)"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                  </div>
-                )}
-
-                {block.type === 'speaker_quote' && (
-                  <div className="space-y-2">
-                    <textarea
-                      rows={2}
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Declaración textual de la persona..."
-                      className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
-                    />
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <input
-                        type="text"
-                        value={block.author || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, author: e.target.value } : b)))
-                        }
-                        placeholder="Nombre completo"
-                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                      <input
-                        type="text"
-                        value={block.speakerRole || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, speakerRole: e.target.value } : b)))
-                        }
-                        placeholder="Cargo o rol"
-                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                      <div className="flex gap-1.5">
-                        <input
-                          type="text"
-                          value={block.imageUrl || ''}
-                          onChange={(e) =>
-                            setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, imageUrl: e.target.value } : b)))
-                          }
-                          placeholder="URL retrato"
-                          className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <label className="px-2.5 py-1.5 rounded-full bg-[#111111] text-white text-[11px] font-display font-bold uppercase cursor-pointer">
-                          Foto
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) handleUploadAsset(f, block.id);
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {block.type === 'callout' && (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <select
-                        value={block.calloutTone || 'info'}
-                        onChange={(e) =>
-                          setBlocks((prev) =>
-                            prev.map((b, i) =>
-                              i === idx ? { ...b, calloutTone: e.target.value as 'info' | 'key_fact' | 'warning' } : b
-                            )
-                          )
-                        }
-                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                      >
-                        <option value="info">Contexto / Nota</option>
-                        <option value="key_fact">Dato clave</option>
-                        <option value="warning">Advertencia</option>
-                      </select>
-                      <input
-                        type="text"
-                        value={block.calloutTitle || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, calloutTitle: e.target.value } : b)))
-                        }
-                        placeholder="Título del recuadro"
-                        className="sm:col-span-2 px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                      />
-                    </div>
-                    <textarea
-                      rows={3}
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Contenido del recuadro..."
-                      className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
-                    />
-                  </div>
-                )}
-
-                {block.type === 'context_box' && (
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={block.calloutTitle || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, calloutTitle: e.target.value } : b)))
-                      }
-                      placeholder="Título de la caja de contexto"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                    />
-                    <textarea
-                      rows={3}
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Antecedentes, glosario o metodología..."
-                      className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
-                    />
-                  </div>
-                )}
-
-                {block.type === 'columns' && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setBlocks((prev) =>
-                            prev.map((b, i) =>
-                              i === idx
-                                ? {
-                                    ...b,
-                                    columns: [
-                                      b.columns?.[0] || { title: 'Columna 1', body: '' },
-                                      b.columns?.[1] || { title: 'Columna 2', body: '' },
-                                    ],
-                                  }
-                                : b
-                            )
-                          )
-                        }
-                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-bold uppercase cursor-pointer"
-                      >
-                        2 columnas
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setBlocks((prev) =>
-                            prev.map((b, i) =>
-                              i === idx
-                                ? {
-                                    ...b,
-                                    columns: [
-                                      b.columns?.[0] || { title: 'Columna 1', body: '' },
-                                      b.columns?.[1] || { title: 'Columna 2', body: '' },
-                                      b.columns?.[2] || { title: 'Columna 3', body: '' },
-                                    ],
-                                  }
-                                : b
-                            )
-                          )
-                        }
-                        className="px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-[11px] font-bold uppercase cursor-pointer"
-                      >
-                        3 columnas
-                      </button>
-                    </div>
-                    <div className={`grid grid-cols-1 ${(block.columns?.length || 2) === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2`}>
-                      {(block.columns || []).map((col, ci) => (
-                        <div key={ci} className="space-y-1.5">
-                          <input
-                            type="text"
-                            value={col.title || ''}
-                            onChange={(e) =>
-                              setBlocks((prev) =>
-                                prev.map((b, i) =>
-                                  i === idx
-                                    ? {
-                                        ...b,
-                                        columns: (b.columns || []).map((c, j) =>
-                                          j === ci ? { ...c, title: e.target.value } : c
-                                        ),
-                                      }
-                                    : b
-                                )
-                              )
-                            }
-                            placeholder={`Título col. ${ci + 1}`}
-                            className="w-full px-2.5 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                          />
-                          <textarea
-                            rows={3}
-                            value={col.body}
-                            onChange={(e) =>
-                              setBlocks((prev) =>
-                                prev.map((b, i) =>
-                                  i === idx
-                                    ? {
-                                        ...b,
-                                        columns: (b.columns || []).map((c, j) =>
-                                          j === ci ? { ...c, body: e.target.value } : c
-                                        ),
-                                      }
-                                    : b
-                                )
-                              )
-                            }
-                            placeholder={`Contenido col. ${ci + 1}`}
-                            className="w-full p-2 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {block.type === 'before_after' && (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div className="space-y-1.5">
-                        <div className="flex gap-1.5">
-                          <input
-                            type="text"
-                            value={block.beforeImageUrl || ''}
-                            onChange={(e) =>
-                              setBlocks((prev) =>
-                                prev.map((b, i) => (i === idx ? { ...b, beforeImageUrl: e.target.value } : b))
-                              )
-                            }
-                            placeholder="URL imagen Antes"
-                            className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                          />
-                          <label className="px-2.5 py-1.5 rounded-full bg-[#111111] text-white text-[11px] font-bold uppercase cursor-pointer">
-                            Subir
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) handleUploadAsset(f, { blockId: block.id, field: 'beforeImageUrl' });
-                              }}
-                            />
-                          </label>
-                        </div>
-                        <input
-                          type="text"
-                          value={block.beforeLabel || ''}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) => (i === idx ? { ...b, beforeLabel: e.target.value } : b))
-                            )
-                          }
-                          placeholder="Etiqueta Antes"
-                          className="w-full px-2.5 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex gap-1.5">
-                          <input
-                            type="text"
-                            value={block.afterImageUrl || ''}
-                            onChange={(e) =>
-                              setBlocks((prev) =>
-                                prev.map((b, i) => (i === idx ? { ...b, afterImageUrl: e.target.value } : b))
-                              )
-                            }
-                            placeholder="URL imagen Después"
-                            className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                          />
-                          <label className="px-2.5 py-1.5 rounded-full bg-[#111111] text-white text-[11px] font-bold uppercase cursor-pointer">
-                            Subir
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) handleUploadAsset(f, { blockId: block.id, field: 'afterImageUrl' });
-                              }}
-                            />
-                          </label>
-                        </div>
-                        <input
-                          type="text"
-                          value={block.afterLabel || ''}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) => (i === idx ? { ...b, afterLabel: e.target.value } : b))
-                            )
-                          }
-                          placeholder="Etiqueta Después"
-                          className="w-full px-2.5 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                      </div>
-                    </div>
-                    <input
-                      type="text"
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Pie comparativo (opcional)"
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                  </div>
-                )}
-
-                {block.type === 'metrics' && (
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Título del panel de cifras (opcional)"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                    />
-                    {(block.metricItems || []).map((m, mi) => (
-                      <div key={mi} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                        <input
-                          type="text"
-                          value={m.value}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      metricItems: (b.metricItems || []).map((x, j) =>
-                                        j === mi ? { ...x, value: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Cifra (ej. 42%)"
-                          className="sm:col-span-3 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                        />
-                        <input
-                          type="text"
-                          value={m.label}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      metricItems: (b.metricItems || []).map((x, j) =>
-                                        j === mi ? { ...x, label: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Etiqueta"
-                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <input
-                          type="text"
-                          value={m.detail || ''}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      metricItems: (b.metricItems || []).map((x, j) =>
-                                        j === mi ? { ...x, detail: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Fuente o aclaración"
-                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? { ...b, metricItems: (b.metricItems || []).filter((_, j) => j !== mi) }
-                                  : b
-                              )
-                            )
-                          }
-                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setBlocks((prev) =>
-                          prev.map((b, i) =>
-                            i === idx
-                              ? { ...b, metricItems: [...(b.metricItems || []), { value: '', label: '', detail: '' }] }
-                              : b
-                          )
-                        )
-                      }
-                      className="text-xs font-display font-bold uppercase text-[var(--editorial-primary)] cursor-pointer"
-                    >
-                      + Añadir métrica
-                    </button>
-                  </div>
-                )}
-
-                {block.type === 'carousel' && (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs text-neutral-500">
-                        Diapositivas: {(block.carouselItems || []).length}
-                      </span>
-                      <div className="flex gap-2">
-                        <label className="px-3 py-1 rounded-full bg-[#111111] text-white text-[11px] font-display font-bold uppercase cursor-pointer">
-                          + Subir foto
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) handleUploadAsset(f, { blockId: block.id, carouselAdd: true });
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      carouselItems: [
-                                        ...(b.carouselItems || []),
-                                        { id: generateId('car'), url: '', alt: '', caption: '', credit: '' },
-                                      ],
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          className="px-2.5 py-1 rounded-full border border-neutral-400 text-[11px] font-bold uppercase cursor-pointer"
-                        >
-                          + URL
-                        </button>
-                      </div>
-                    </div>
-                    {(block.carouselItems || []).map((item, ci) => (
-                      <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                        <input
-                          type="text"
-                          value={item.url}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      carouselItems: (b.carouselItems || []).map((x, j) =>
-                                        j === ci ? { ...x, url: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="URL imagen"
-                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <input
-                          type="text"
-                          value={item.caption}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      carouselItems: (b.carouselItems || []).map((x, j) =>
-                                        j === ci ? { ...x, caption: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Pie de foto"
-                          className="sm:col-span-4 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <input
-                          type="text"
-                          value={item.credit}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      carouselItems: (b.carouselItems || []).map((x, j) =>
-                                        j === ci ? { ...x, credit: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Crédito"
-                          className="sm:col-span-3 px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? { ...b, carouselItems: (b.carouselItems || []).filter((_, j) => j !== ci) }
-                                  : b
-                              )
-                            )
-                          }
-                          className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {block.type === 'divider' && (
-                  <select
-                    value={block.dividerVariant || 'line'}
-                    onChange={(e) =>
-                      setBlocks((prev) =>
-                        prev.map((b, i) =>
-                          i === idx
-                            ? { ...b, dividerVariant: e.target.value as 'line' | 'asterisks' | 'red_rule' }
-                            : b
-                        )
-                      )
-                    }
-                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                  >
-                    <option value="line">Línea sutil centrada</option>
-                    <option value="asterisks">Asteriscos editoriales (* * *)</option>
-                    <option value="red_rule">Trazo rojo editorial</option>
-                  </select>
-                )}
-
-                {block.type === 'list' && (
-                  <div className="space-y-2">
-                    <select
-                      value={block.listStyle || 'unordered'}
-                      onChange={(e) =>
-                        setBlocks((prev) =>
-                          prev.map((b, i) =>
-                            i === idx ? { ...b, listStyle: e.target.value as 'unordered' | 'ordered' } : b
-                          )
-                        )
-                      }
-                      className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                    >
-                      <option value="unordered">Lista con viñetas</option>
-                      <option value="ordered">Lista numerada</option>
-                    </select>
-                    <textarea
-                      rows={4}
-                      value={(block.listItems || []).join('\n')}
-                      onChange={(e) =>
-                        setBlocks((prev) =>
-                          prev.map((b, i) =>
-                            i === idx ? { ...b, listItems: e.target.value.split('\n') } : b
-                          )
-                        )
-                      }
-                      placeholder="Escribe un elemento por línea..."
-                      className="w-full p-2.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-sm"
-                    />
-                  </div>
-                )}
-
-                {block.type === 'document' && (
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={block.documentUrl || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, documentUrl: e.target.value } : b)))
-                        }
-                        placeholder="URL del documento PDF o anexo"
-                        className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                      <label className="px-3 py-1.5 rounded-full bg-[#111111] text-white text-xs font-display font-bold uppercase cursor-pointer">
-                        Subir PDF
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf,.doc,.docx"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleUploadDocument(f, block.id);
-                          }}
-                        />
-                      </label>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        value={block.documentTitle || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, documentTitle: e.target.value } : b)))
-                        }
-                        placeholder="Nombre del documento"
-                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                      <input
-                        type="text"
-                        value={block.documentDescription || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) =>
-                            prev.map((b, i) => (i === idx ? { ...b, documentDescription: e.target.value } : b))
-                          )
-                        }
-                        placeholder="Descripción breve o contexto"
-                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {block.type === 'image' && (
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={block.imageUrl || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, imageUrl: e.target.value } : b)))
-                        }
-                        placeholder="URL de imagen"
-                        className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                      <label className="px-3 py-1.5 rounded-full bg-[#111111] text-white text-xs font-display font-bold uppercase cursor-pointer">
-                        Subir
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleUploadAsset(f, block.id);
-                          }}
-                        />
-                      </label>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        value={block.imageCaption || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, imageCaption: e.target.value } : b)))
-                        }
-                        placeholder="Pie de foto o nota de figura"
-                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                      <input
-                        type="text"
-                        value={block.imageCredit || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, imageCredit: e.target.value } : b)))
-                        }
-                        placeholder="Crédito y texto alternativo"
-                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {block.type === 'timeline' && (
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={block.text || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                      }
-                      placeholder="Título de la línea de tiempo"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                    />
-                    {(block.timelineEntries || []).map((te, ti) => (
-                      <div key={ti} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <input
-                          type="text"
-                          value={te.date}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      timelineEntries: (b.timelineEntries || []).map((x, j) =>
-                                        j === ti ? { ...x, date: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Fecha / Hora"
-                          className="px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <input
-                          type="text"
-                          value={te.title}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      timelineEntries: (b.timelineEntries || []).map((x, j) =>
-                                        j === ti ? { ...x, title: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Evento"
-                          className="px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                        <input
-                          type="text"
-                          value={te.detail}
-                          onChange={(e) =>
-                            setBlocks((prev) =>
-                              prev.map((b, i) =>
-                                i === idx
-                                  ? {
-                                      ...b,
-                                      timelineEntries: (b.timelineEntries || []).map((x, j) =>
-                                        j === ti ? { ...x, detail: e.target.value } : x
-                                      ),
-                                    }
-                                  : b
-                              )
-                            )
-                          }
-                          placeholder="Detalle"
-                          className="px-2 py-1 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                        />
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setBlocks((prev) =>
-                          prev.map((b, i) =>
-                            i === idx
-                              ? {
-                                  ...b,
-                                  timelineEntries: [
-                                    ...(b.timelineEntries || []),
-                                    { date: '', title: '', detail: '' },
-                                  ],
-                                }
-                              : b
-                          )
-                        )
-                      }
-                      className="text-xs font-display font-bold uppercase text-[var(--editorial-primary)] cursor-pointer"
-                    >
-                      + Añadir hito
-                    </button>
-                  </div>
-                )}
-
-                {block.type === 'table' && (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        value={block.text || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text: e.target.value } : b)))
-                        }
-                        placeholder="Título de la tabla"
-                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
-                      />
-                      <input
-                        type="text"
-                        value={block.tableCaption || ''}
-                        onChange={(e) =>
-                          setBlocks((prev) =>
-                            prev.map((b, i) => (i === idx ? { ...b, tableCaption: e.target.value } : b))
-                          )
-                        }
-                        placeholder="Nota / pie de tabla (ej. Fuente: DANE)"
-                        className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                      />
-                    </div>
-                    <input
-                      type="text"
-                      value={(block.tableHeaders || []).join(' | ')}
-                      onChange={(e) =>
-                        setBlocks((prev) =>
-                          prev.map((b, i) =>
-                            i === idx
-                              ? { ...b, tableHeaders: e.target.value.split('|').map((s) => s.trim()) }
-                              : b
-                          )
-                        )
-                      }
-                      placeholder="Encabezados separados por |"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                    <textarea
-                      rows={3}
-                      value={(block.tableRows || []).map((r) => r.join(' | ')).join('\n')}
-                      onChange={(e) =>
-                        setBlocks((prev) =>
-                          prev.map((b, i) =>
-                            i === idx
-                              ? {
-                                  ...b,
-                                  tableRows: e.target.value
-                                    .split('\n')
-                                    .filter(Boolean)
-                                    .map((line) => line.split('|').map((s) => s.trim())),
-                                }
-                              : b
-                          )
-                        )
-                      }
-                      placeholder="Una fila por línea, columnas separadas por |"
-                      className="w-full p-2 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs font-tabular"
-                    />
-                  </div>
-                )}
-
-                {block.type === 'social_embed' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <input
-                      type="text"
-                      value={block.embedPlatform || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, embedPlatform: e.target.value } : b)))
-                      }
-                      placeholder="Plataforma (X, Instagram, YouTube...)"
-                      className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                    <input
-                      type="url"
-                      value={block.embedUrl || ''}
-                      onChange={(e) =>
-                        setBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, embedUrl: e.target.value } : b)))
-                      }
-                      placeholder="https://..."
-                      className="sm:col-span-2 px-3 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                    />
-                  </div>
-                )}
-              </div>
+              <BlockItemEditor
+                key={block.id}
+                block={block}
+                index={idx}
+                setBlocks={setBlocks}
+                onMoveBlock={moveBlock}
+                onUploadAsset={handleUploadAsset}
+                onUploadDocument={handleUploadDocument}
+                onRequestCropBlockImage={(blockId, srcUrl) =>
+                  setCropTarget({ kind: 'block', blockId, srcUrl })
+                }
+              />
             ))}
 
             {/* Add Block Toolbar */}
@@ -3109,101 +1787,6 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* APA 7 Bibliographic References Assistant */}
-          <div className="space-y-3 border-t border-neutral-300 dark:border-neutral-800 pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider">
-                <BookMarked className="w-3.5 h-3.5 text-[var(--editorial-primary)]" />
-                Referencias bibliográficas APA 7 ({apaReferences.length})
-              </span>
-              <button
-                type="button"
-                disabled={apaReferences.length >= 60}
-                onClick={() =>
-                  setApaReferences((prev) => [
-                    ...prev,
-                    { id: generateId('apa'), author: '', year: '', title: '', publisher: '', url: '' },
-                  ])
-                }
-                className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase cursor-pointer"
-              >
-                + Añadir referencia APA
-              </button>
-            </div>
-            {apaReferences.map((ref, idx) => (
-              <div key={ref.id} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-2 bg-[#F8F6F1]/50 dark:bg-[#181818]">
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                  <input
-                    type="text"
-                    value={ref.author}
-                    onChange={(e) =>
-                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, author: e.target.value } : x)))
-                    }
-                    placeholder="Autor (ej. Fals Borda, O.)"
-                    className="sm:col-span-5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                  />
-                  <input
-                    type="text"
-                    value={ref.year}
-                    onChange={(e) =>
-                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, year: e.target.value } : x)))
-                    }
-                    placeholder="Año (ej. 2024)"
-                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                  />
-                  <input
-                    type="text"
-                    value={ref.publisher}
-                    onChange={(e) =>
-                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, publisher: e.target.value } : x)))
-                    }
-                    placeholder="Editorial / Revista / Institución"
-                    className="sm:col-span-4 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setApaReferences((prev) => prev.filter((_, i) => i !== idx))}
-                    className="sm:col-span-1 text-xs text-red-600 font-bold cursor-pointer"
-                  >
-                    Quitar
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                  <input
-                    type="text"
-                    value={ref.title}
-                    onChange={(e) =>
-                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, title: e.target.value } : x)))
-                    }
-                    placeholder="Título del libro, artículo o informe"
-                    className="sm:col-span-6 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                  />
-                  <input
-                    type="url"
-                    value={ref.url || ''}
-                    onChange={(e) =>
-                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x)))
-                    }
-                    placeholder="URL o DOI (opcional)"
-                    className="sm:col-span-4 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                  />
-                  <input
-                    type="text"
-                    value={ref.accessDate || ''}
-                    onChange={(e) =>
-                      setApaReferences((prev) => prev.map((x, i) => (i === idx ? { ...x, accessDate: e.target.value } : x)))
-                    }
-                    placeholder="Consulta (opc.)"
-                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 text-xs"
-                  />
-                </div>
-                <p className="text-[11px] text-neutral-500 italic">
-                  Vista APA: {buildApaReferenceString(ref)}
-                </p>
-              </div>
-            ))}
           </div>
 
           {/* Sources Consulted */}
@@ -3474,162 +2057,47 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
           </div>
         </div>
 
-        {/* Live Split Preview with Viewport Switcher */}
         {showPreview && (
-          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[#F8F6F1] dark:bg-[#0D0D0D] p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-neutral-200 dark:border-neutral-800">
-              <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                Vista previa editorial ({headerStyle} · {coverLayout})
-              </p>
-              <div className="inline-flex items-center rounded-full border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setPreviewViewport('desktop')}
-                  aria-label="Vista escritorio"
-                  className={`p-1.5 rounded-full cursor-pointer ${previewViewport === 'desktop' ? 'bg-[#111111] text-white dark:bg-white dark:text-black' : 'text-neutral-500'}`}
-                >
-                  <Monitor className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewViewport('tablet')}
-                  aria-label="Vista tableta"
-                  className={`p-1.5 rounded-full cursor-pointer ${previewViewport === 'tablet' ? 'bg-[#111111] text-white dark:bg-white dark:text-black' : 'text-neutral-500'}`}
-                >
-                  <Tablet className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewViewport('mobile')}
-                  aria-label="Vista móvil"
-                  className={`p-1.5 rounded-full cursor-pointer ${previewViewport === 'mobile' ? 'bg-[#111111] text-white dark:bg-white dark:text-black' : 'text-neutral-500'}`}
-                >
-                  <Smartphone className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div
-              className={`mx-auto transition-all space-y-5 ${
-                previewViewport === 'mobile'
-                  ? 'max-w-[360px] rounded-2xl border border-neutral-300 dark:border-neutral-800 p-4 bg-[#F8F6F1] dark:bg-[#0D0D0D]'
-                  : previewViewport === 'tablet'
-                  ? 'max-w-[680px]'
-                  : 'w-full'
-              }`}
-              style={
-                useCustomAccent
-                  ? ({ '--editorial-primary': accentColor } as React.CSSProperties)
-                  : undefined
-              }
-            >
-              {coverImage && (
-                <div className={type === 'infographic' ? 'overflow-hidden rounded-xl bg-neutral-900' : 'aspect-[16/9] rounded-xl overflow-hidden bg-neutral-900'}>
-                  <EditorialImage
-                    src={coverImage}
-                    alt={coverAlt || title}
-                    fallbackTitle={title}
-                    sensitive={sensitiveContent}
-                    sensitiveWarning={sensitiveWarning}
-                    className={type === 'infographic' ? 'w-full h-auto object-contain' : 'w-full h-full object-cover'}
-                  />
-                </div>
-              )}
-              <h1 className={`font-display text-3xl font-extrabold leading-tight ${headerStyle === 'minimal' ? 'text-center' : ''}`}>
-                {title || 'Titular de la publicación'}
-              </h1>
-              {subtitle && <p className={`text-base text-neutral-600 dark:text-neutral-300 ${headerStyle === 'minimal' ? 'text-center' : ''}`}>{subtitle}</p>}
-              {keyPoints.filter((k) => k.trim()).length > 0 && (
-                <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-2">
-                  <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                    Puntos clave
-                  </p>
-                  <ul className="list-disc pl-5 space-y-1 text-sm">
-                    {keyPoints.filter((k) => k.trim()).map((kp, i) => (
-                      <li key={i}>{kp}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="space-y-4 font-editorial text-base leading-relaxed">
-                {blocks.map((b, bIdx) => (
-                  <div key={b.id}>
-                    {b.type === 'paragraph' && (
-                      <p className={bIdx === 0 ? 'editorial-lead' : paragraphIndent ? 'editorial-paragraph-indent' : ''}>
-                        {b.text}
-                      </p>
-                    )}
-                    {b.type === 'heading' && <h2 className="font-display text-2xl font-bold">{b.text}</h2>}
-                    {b.type === 'quote' && (
-                      <blockquote className="py-3 border-y border-neutral-300 dark:border-neutral-700 italic text-center">
-                        “{b.text}”
-                      </blockquote>
-                    )}
-                    {b.type === 'speaker_quote' && (
-                      <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-1">
-                        <p className="italic">“{b.text}”</p>
-                        <p className="text-xs font-display font-bold uppercase text-[var(--editorial-primary)]">
-                          {b.author} {b.speakerRole ? `· ${b.speakerRole}` : ''}
-                        </p>
-                      </div>
-                    )}
-                    {(b.type === 'callout' || b.type === 'context_box') && (
-                      <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-4 space-y-1">
-                        {b.calloutTitle && <p className="font-display text-sm font-bold">{b.calloutTitle}</p>}
-                        <p className="text-sm">{b.text}</p>
-                      </div>
-                    )}
-                    {b.type === 'metrics' && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {(b.metricItems || []).map((m, mi) => (
-                          <div key={mi} className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-3">
-                            <p className="font-display text-2xl font-extrabold text-[var(--editorial-primary)]">{m.value}</p>
-                            <p className="text-xs font-bold">{m.label}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {b.type === 'columns' && (
-                      <div className="grid grid-cols-2 gap-3">
-                        {(b.columns || []).map((c, ci) => (
-                          <div key={ci} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 text-sm">
-                            {c.title && <p className="font-display font-bold">{c.title}</p>}
-                            <p>{c.body}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {b.type === 'list' &&
-                      (b.listStyle === 'ordered' ? (
-                        <ol className="list-decimal pl-5 space-y-1">
-                          {(b.listItems || []).filter(Boolean).map((item, i) => (
-                            <li key={i}>{item}</li>
-                          ))}
-                        </ol>
-                      ) : (
-                        <ul className="list-disc pl-5 space-y-1">
-                          {(b.listItems || []).filter(Boolean).map((item, i) => (
-                            <li key={i}>{item}</li>
-                          ))}
-                        </ul>
-                      ))}
-                    {b.type === 'document' && b.documentUrl && (
-                      <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] p-3 flex items-center justify-between text-xs">
-                        <span className="font-bold">{b.documentTitle || 'Documento adjunto'}</span>
-                        <span className="uppercase text-[var(--editorial-primary)]">PDF</span>
-                      </div>
-                    )}
-                    {b.type === 'image' && b.imageUrl && (
-                      <EditorialImage src={b.imageUrl} alt={b.imageAlt || ''} className="w-full aspect-video object-cover" />
-                    )}
-                    {b.type === 'divider' && <hr className="my-4 border-neutral-300 dark:border-neutral-700 w-1/3 mx-auto" />}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <EditorPreview
+            previewViewport={previewViewport}
+            setPreviewViewport={setPreviewViewport}
+            headerStyle={headerStyle}
+            coverLayout={coverLayout}
+            useCustomAccent={useCustomAccent}
+            accentColor={accentColor}
+            type={type}
+            coverImage={coverImage}
+            coverAlt={coverAlt}
+            title={title}
+            subtitle={subtitle}
+            mediaUrl={mediaUrl}
+            mediaSubtitlesUrl={mediaSubtitlesUrl}
+            sensitiveContent={sensitiveContent}
+            sensitiveWarning={sensitiveWarning}
+            keyPoints={keyPoints}
+            blocks={blocks}
+            paragraphIndent={paragraphIndent}
+          />
         )}
       </div>
+
+      <ImageCropModal
+        open={Boolean(cropTarget)}
+        imageSrc={cropTarget?.srcUrl || ''}
+        initialAspect={cropTarget?.kind === 'cover' ? '16:9' : 'free'}
+        fileName={cropTarget?.kind === 'cover' ? 'portada.webp' : 'imagen-articulo.webp'}
+        onClose={() => setCropTarget(null)}
+        onConfirm={(croppedFile) => {
+          const current = cropTarget;
+          setCropTarget(null);
+          if (!current) return;
+          if (current.kind === 'cover') {
+            void handleUploadAsset(croppedFile, 'cover');
+          } else if (current.blockId) {
+            void handleUploadAsset(croppedFile, current.blockId);
+          }
+        }}
+      />
     </div>
   );
 };

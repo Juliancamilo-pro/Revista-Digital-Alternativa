@@ -1,9 +1,15 @@
 import React, { useState } from 'react';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { FileCode2, Mail, Rss } from 'lucide-react';
+import { Bell, BellOff, FileCode2, Mail, Rss } from 'lucide-react';
 import { useSite } from '../context/SiteContext';
 import { checkActionCooldown, markActionCooldown } from '../lib/appCheck';
 import { db } from '../lib/firebase';
+import {
+  disableArticleAlerts,
+  getArticleAlertsEnabled,
+  isArticleAlertsSupported,
+  requestArticleAlertsPermission,
+} from '../lib/notifications';
 import { downloadTextFile, generateId, generateRssXml, generateSitemapXml, sanitizeExternalUrl } from '../lib/utils';
 
 export const Footer: React.FC = () => {
@@ -13,6 +19,8 @@ export const Footer: React.FC = () => {
   const [websiteTrap, setWebsiteTrap] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [alertsEnabled, setAlertsEnabled] = useState<boolean>(() => getArticleAlertsEnabled());
+  const [alertsMessage, setAlertsMessage] = useState<string | null>(null);
 
   if (readingMode) return null;
 
@@ -82,6 +90,9 @@ export const Footer: React.FC = () => {
             <p className="text-sm text-neutral-300 leading-relaxed">
               {siteConfig.tagline}
             </p>
+            <p className="font-display text-xs font-bold uppercase tracking-widest text-amber-300">
+              Hecho en el Tolima, para Colombia
+            </p>
             {hasSocialLinks && (
               <div className="flex flex-wrap gap-2 pt-1 text-xs font-display uppercase tracking-wider text-neutral-300">
                 {twitterUrl && (
@@ -142,6 +153,11 @@ export const Footer: React.FC = () => {
               Transparencia y Red
             </h3>
             <ul className="space-y-2 text-sm text-neutral-300">
+              <li>
+                <a href="/tolima" onClick={(e) => { e.preventDefault(); navigate('/tolima'); }} className="hover:text-white font-semibold text-amber-200">
+                  Tolima, Capital Musical
+                </a>
+              </li>
               <li>
                 <a href="/quienes-somos" onClick={(e) => { e.preventDefault(); navigate('/quienes-somos'); }} className="hover:text-white">
                   Quiénes somos
@@ -237,6 +253,46 @@ export const Footer: React.FC = () => {
                 {feedback.text}
               </p>
             )}
+
+            {isArticleAlertsSupported() && (
+              <div className="mt-4 pt-4 border-t border-neutral-800 space-y-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setAlertsMessage(null);
+                    if (alertsEnabled) {
+                      disableArticleAlerts();
+                      setAlertsEnabled(false);
+                      setAlertsMessage('Alertas de nuevas publicaciones desactivadas.');
+                    } else {
+                      const res = await requestArticleAlertsPermission();
+                      setAlertsEnabled(res.ok);
+                      setAlertsMessage(res.message);
+                    }
+                  }}
+                  className={`w-full py-2 px-3 rounded-xl border text-xs font-display font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                    alertsEnabled
+                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                      : 'border-neutral-700 bg-neutral-900 text-neutral-200 hover:border-neutral-500'
+                  }`}
+                >
+                  {alertsEnabled ? (
+                    <>
+                      <BellOff className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Alertas PWA activas (desactivar)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bell className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Alertas de nuevas publicaciones (PWA)</span>
+                    </>
+                  )}
+                </button>
+                {alertsMessage && (
+                  <p className="text-[11px] text-neutral-300 leading-snug">{alertsMessage}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -249,7 +305,7 @@ export const Footer: React.FC = () => {
           )}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2">
             <span>
-              © {new Date().getFullYear()} {siteConfig.siteName}. Periodismo independiente sin filtros corporativos.
+              © {new Date().getFullYear()} {siteConfig.siteName}. Hecho en el Tolima, para Colombia. Periodismo independiente sin filtros corporativos.
             </span>
             {siteConfig.contactEmail?.trim() && (
               <span>Contacto editorial: {siteConfig.contactEmail.trim()}</span>

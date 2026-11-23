@@ -17,14 +17,23 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   initialTag,
   initialSeriesSlug,
 }) => {
-  const { publishedPosts, categories, collaborators, adminIdentities, seriesList, navigate } = useSite();
+  const {
+    publishedPosts,
+    hasMorePublishedPosts,
+    loadMorePublishedPosts,
+    categories,
+    collaborators,
+    adminIdentities,
+    seriesList,
+    navigate,
+  } = useSite();
   const { playTrack } = useMediaPlayer();
 
   const [queryText, setQueryText] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | PostType>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>(initialCategorySlug || 'all');
   const [authorFilter, setAuthorFilter] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | '365d'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7d' | '30d' | '365d'>('all');
   const [sortBy, setSortBy] = useState<'relevance' | 'date'>('relevance');
   const [activeTag, setActiveTag] = useState<string>(initialTag || '');
 
@@ -80,6 +89,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       if (activeTag && !(p.tags || []).includes(activeTag)) continue;
 
       const pubTime = toDate(p.publishedAt || p.createdAt).getTime();
+      if (dateFilter === 'today' && now - pubTime > dayMs) continue;
       if (dateFilter === '7d' && now - pubTime > 7 * dayMs) continue;
       if (dateFilter === '30d' && now - pubTime > 30 * dayMs) continue;
       if (dateFilter === '365d' && now - pubTime > 365 * dayMs) continue;
@@ -334,10 +344,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           <select
             aria-label="Fecha"
             value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value as 'all' | '7d' | '30d' | '365d')}
+            onChange={(e) => setDateFilter(e.target.value as 'all' | 'today' | '7d' | '30d' | '365d')}
             className="px-3.5 py-1.5 rounded-full bg-[#F8F6F1] dark:bg-[#1C1C1C] border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase"
           >
             <option value="all">Cualquier fecha</option>
+            <option value="today">Hoy</option>
             <option value="7d">Últimos 7 días</option>
             <option value="30d">Últimos 30 días</option>
             <option value="365d">Último año</option>
@@ -391,10 +402,34 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {results.map((p) => (
-            <ArticleCard key={p.id} post={p} />
-          ))}
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {results.map((p) => (
+              <ArticleCard key={p.id} post={p} />
+            ))}
+          </div>
+          {hasMorePublishedPosts && (
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={loadMorePublishedPosts}
+                className="px-6 py-2.5 rounded-full border-2 border-[#111111] dark:border-neutral-500 font-display font-bold uppercase tracking-wider text-xs hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors cursor-pointer"
+              >
+                Cargar más del archivo
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {results.length === 0 && hasMorePublishedPosts && (
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={loadMorePublishedPosts}
+            className="px-6 py-2.5 rounded-full border-2 border-[#111111] dark:border-neutral-500 font-display font-bold uppercase tracking-wider text-xs hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors cursor-pointer"
+          >
+            Cargar más del archivo
+          </button>
         </div>
       )}
 

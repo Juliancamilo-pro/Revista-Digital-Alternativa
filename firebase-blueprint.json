@@ -371,7 +371,7 @@
     },
     "Post": {
       "title": "Post",
-      "description": "Editorial publication with extended layout, APA 7 academic mode, rich interactive blocks, and video/audio chaptered playback.",
+      "description": "Editorial publication with extended layout, rich interactive blocks, and video/audio chaptered playback.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
@@ -405,8 +405,6 @@
         "headerStyle": { "type": "string", "enum": ["classic", "editorial", "minimal"] },
         "accentColor": { "type": "string", "maxLength": 20 },
         "paragraphIndent": { "type": "boolean" },
-        "apaMode": { "type": "boolean" },
-        "apaReferences": { "type": "array" },
         "showTableOfContents": { "type": "boolean" },
         "blocks": { "type": "array" },
         "galleryItems": { "type": "array" },

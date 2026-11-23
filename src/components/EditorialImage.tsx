@@ -15,6 +15,10 @@ interface EditorialImageProps {
   sensitive?: boolean;
   sensitiveWarning?: string;
   focalPointOverride?: { x: number; y: number };
+  width?: number;
+  height?: number;
+  sizes?: string;
+  srcSet?: string;
 }
 
 export const EditorialImage: React.FC<EditorialImageProps> = ({
@@ -29,6 +33,10 @@ export const EditorialImage: React.FC<EditorialImageProps> = ({
   sensitive = false,
   sensitiveWarning,
   focalPointOverride,
+  width = 1200,
+  height = 800,
+  sizes,
+  srcSet,
 }) => {
   const { isDataSaverActive } = useDataSaver();
   const safeRaw = sanitizeExternalUrl(src || '');
@@ -111,7 +119,11 @@ export const EditorialImage: React.FC<EditorialImageProps> = ({
         <img
           ref={imgRef}
           src={safeSrc}
+          srcSet={srcSet}
+          sizes={sizes}
           alt={alt}
+          width={width}
+          height={height}
           referrerPolicy="no-referrer"
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : 'auto'}
