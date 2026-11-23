@@ -1,0 +1,62 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isStorageAdmin() {
+      return isSignedIn() &&
+        ('email' in request.auth.token) &&
+        request.auth.token.email.lower() == 'trujillogordillooo@gmail.com';
+    }
+
+    function isOwnerOrAdmin(uid) {
+      return isSignedIn() && (request.auth.uid == uid || isStorageAdmin());
+    }
+
+    match /{allPaths=**} {
+      allow read: if true;
+    }
+
+    match /posts/{uid}/{allPaths=**} {
+      allow write: if isOwnerOrAdmin(uid)
+        && request.resource.size < 50 * 1024 * 1024;
+    }
+
+    match /avatars/{uid}/{allPaths=**} {
+      allow write: if isOwnerOrAdmin(uid)
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /media/{uid}/{allPaths=**} {
+      allow write: if isOwnerOrAdmin(uid)
+        && request.resource.size < 50 * 1024 * 1024;
+    }
+
+    match /documents/{uid}/{allPaths=**} {
+      allow write: if isOwnerOrAdmin(uid)
+        && request.resource.size < 50 * 1024 * 1024;
+    }
+
+    match /party_logos/{uid}/{allPaths=**} {
+      allow write: if isOwnerOrAdmin(uid)
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /subtitles/{uid}/{allPaths=**} {
+      allow write: if isOwnerOrAdmin(uid)
+        && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    match /admin_identities/{allPaths=**} {
+      allow write: if isStorageAdmin()
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /site/{allPaths=**} {
+      allow write: if isStorageAdmin()
+        && request.resource.size < 25 * 1024 * 1024;
+    }
+  }
+}

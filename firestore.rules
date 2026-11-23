@@ -23,6 +23,16 @@ service cloud.firestore {
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
+    function isBootstrapOwnerEmail() {
+      return isSignedIn() &&
+        ('email' in request.auth.token) &&
+        request.auth.token.email.lower() == 'trujillogordillooo@gmail.com';
+    }
+    function isBootstrappedAdminUid() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/site_meta/bootstrap) &&
+        get(/databases/$(database)/documents/site_meta/bootstrap).data.adminUid == request.auth.uid;
+    }
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
@@ -31,7 +41,8 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active'
         ) ||
-        (request.auth.token.email == 'trujillogordillooo@gmail.com' && request.auth.token.email_verified == true)
+        isBootstrappedAdminUid() ||
+        (isBootstrapOwnerEmail() && request.auth.token.email_verified == true)
       );
     }
     function isActiveCollaborator() {
@@ -536,6 +547,34 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidAdminPost(data, postId) {
+      return data.keys().hasAll(['id', 'title', 'slug', 'type', 'status', 'categoryId', 'authorId', 'blocks', 'tags', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id', 'title', 'slug', 'subtitle', 'type', 'editorialKind', 'status', 'featured', 'breaking', 'pinnedInFeed', 'isSample',
+          'categoryId', 'categoryName', 'categorySlug', 'seriesId', 'seriesTitle', 'tags',
+          'authorId', 'authorProfileId', 'authorIdentityType', 'authorVerified', 'authorName', 'authorAvatar', 'authorOutletType',
+          'coverImage', 'coverAlt', 'coverCredit', 'coverLayout', 'headerStyle', 'accentColor', 'paragraphIndent',
+          'apaMode', 'apaReferences', 'showTableOfContents',
+          'blocks', 'galleryItems', 'corrections',
+          'keyPoints', 'sensitiveContent', 'sensitiveWarning', 'sources', 'seoDescription', 'commentsEnabled',
+          'mediaUrl', 'mediaSourceType', 'mediaChapters', 'mediaTranscript', 'mediaSubtitlesUrl',
+          'mediaDurationLabel', 'mediaRelatedLinks', 'episodeNotes', 'seasonNumber', 'episodeNumber',
+          'documentTitle', 'audioDurationSec',
+          'readTimeMinutes', 'viewCount', 'commentCount', 'publishedAt', 'scheduledFor', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == postId &&
+        data.title is string && data.title.size() >= 3 && data.title.size() <= 220 &&
+        data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 240 &&
+        data.type in ['article', 'gallery', 'video', 'audio', 'infographic', 'document', 'livestream'] &&
+        data.status in ['draft', 'in_review', 'scheduled', 'published', 'unpublished'] &&
+        isValidId(data.categoryId) &&
+        isValidId(data.authorId) &&
+        data.blocks is list && data.blocks.size() <= 80 &&
+        data.tags is list && data.tags.size() <= 12 &&
+        data.createdAt is timestamp &&
+        data.updatedAt == request.time;
+    }
+
     function isValidComment(data) {
       return data.keys().hasAll(['id', 'postId', 'postTitle', 'postAuthorId', 'authorName', 'authorIsAnonymous', 'text', 'status', 'likesCount', 'reportCount', 'createdAt', 'updatedAt']) &&
         data.keys().hasOnly(['id', 'postId', 'postTitle', 'postAuthorId', 'parentId', 'authorId', 'authorName', 'authorIsAnonymous', 'authorIsAdmin', 'authorProfileId', 'authorAvatar', 'text', 'status', 'likesCount', 'reportCount', 'createdAt', 'updatedAt']) &&
@@ -625,14 +664,15 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
-    // First-admin bootstrap lock (Preserved intact)
+    // First-admin bootstrap lock (Preserved intact, restricted to owner email or active admin)
     match /site_meta/bootstrap {
       allow get: if true;
       allow list: if false;
       allow create: if isSignedIn() &&
         !exists(/databases/$(database)/documents/site_meta/bootstrap) &&
         isValidBootstrapMeta(incoming()) &&
-        incoming().adminUid == request.auth.uid;
+        incoming().adminUid == request.auth.uid &&
+        (isAdmin() || isBootstrapOwnerEmail());
       allow update, delete: if false;
     }
 
@@ -666,7 +706,7 @@ service cloud.firestore {
         incoming().uid == userId &&
         (
           isAdmin() ||
-          (isOwner(userId) && !exists(/databases/$(database)/documents/site_meta/bootstrap))
+          (isOwner(userId) && isBootstrapOwnerEmail() && !exists(/databases/$(database)/documents/site_meta/bootstrap))
         );
       allow update, delete: if isValidId(userId) && isAdmin();
     }
@@ -746,7 +786,7 @@ service cloud.firestore {
           (
             incoming().role == 'admin' &&
             incoming().status == 'active' &&
-            (isAdmin() || !exists(/databases/$(database)/documents/site_meta/bootstrap))
+            (isAdmin() || (isBootstrapOwnerEmail() && !exists(/databases/$(database)/documents/site_meta/bootstrap)))
           )
         );
       allow update: if isValidId(userId) &&
@@ -756,6 +796,13 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           isAdmin() ||
+          (
+            isOwner(userId) &&
+            isBootstrapOwnerEmail() &&
+            !exists(/databases/$(database)/documents/site_meta/bootstrap) &&
+            incoming().role == 'admin' &&
+            incoming().status == 'active'
+          ) ||
           (
             isOwner(userId) &&
             incoming().role == existing().role &&
@@ -889,82 +936,95 @@ service cloud.firestore {
       allow list: if resource.data.status == 'published' ||
         (isSignedIn() && resource.data.authorId == request.auth.uid) ||
         isAdmin();
-      allow create: if isValidId(postId) &&
-        isValidPost(incoming()) &&
-        incoming().id == postId &&
-        incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
+      allow create: if isValidId(postId) && (
         (
-          isAdmin() ||
+          isAdmin() &&
+          isValidAdminPost(incoming(), postId) &&
+          incoming().createdAt == request.time
+        ) ||
+        (
+          isActiveCollaborator() &&
+          isValidPost(incoming()) &&
+          incoming().id == postId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          incoming().authorId == request.auth.uid &&
+          (!('authorIdentityType' in incoming()) || incoming().authorIdentityType == 'collaborator') &&
+          (!('authorProfileId' in incoming()) || incoming().authorProfileId == request.auth.uid) &&
+          incoming().featured == false &&
+          incoming().breaking == false &&
+          (!('pinnedInFeed' in incoming()) || incoming().pinnedInFeed == false) &&
+          incoming().isSample == false &&
+          incoming().viewCount == 0 &&
+          incoming().commentCount == 0 &&
           (
-            isActiveCollaborator() &&
-            incoming().authorId == request.auth.uid &&
-            (!('authorIdentityType' in incoming()) || incoming().authorIdentityType == 'collaborator') &&
-            (!('authorProfileId' in incoming()) || incoming().authorProfileId == request.auth.uid) &&
-            incoming().featured == false &&
-            incoming().breaking == false &&
-            (!('pinnedInFeed' in incoming()) || incoming().pinnedInFeed == false) &&
-            incoming().isSample == false &&
-            incoming().viewCount == 0 &&
-            incoming().commentCount == 0 &&
+            incoming().status in ['draft', 'in_review', 'scheduled'] ||
             (
-              incoming().status in ['draft', 'in_review', 'scheduled'] ||
+              incoming().status == 'published' &&
               (
-                incoming().status == 'published' &&
-                (
-                  !exists(/databases/$(database)/documents/site_config/main) ||
-                  get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
-                )
+                !exists(/databases/$(database)/documents/site_config/main) ||
+                get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
               )
             )
           )
-        );
-      allow update: if isValidId(postId) &&
-        isValidPost(incoming()) &&
-        incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt &&
+        )
+      );
+      allow update: if isValidId(postId) && (
         (
+          isAdmin() &&
+          isValidAdminPost(incoming(), postId) &&
           (
-            isAdmin() &&
-            incoming().updatedAt == request.time
-          ) ||
+            incoming().createdAt == existing().createdAt ||
+            !('createdAt' in existing()) ||
+            !(existing().createdAt is timestamp)
+          )
+        ) ||
+        (
+          isActiveCollaborator() &&
+          isValidPost(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          existing().authorId == request.auth.uid &&
+          incoming().authorId == existing().authorId &&
+          (!('authorIdentityType' in incoming()) || incoming().authorIdentityType == 'collaborator') &&
+          (!('authorProfileId' in incoming()) || incoming().authorProfileId == request.auth.uid) &&
+          incoming().updatedAt == request.time &&
+          incoming().featured == existing().featured &&
+          incoming().breaking == existing().breaking &&
           (
-            isActiveCollaborator() &&
-            existing().authorId == request.auth.uid &&
-            incoming().authorId == existing().authorId &&
-            (!('authorIdentityType' in incoming()) || incoming().authorIdentityType == 'collaborator') &&
-            (!('authorProfileId' in incoming()) || incoming().authorProfileId == request.auth.uid) &&
-            incoming().updatedAt == request.time &&
-            incoming().featured == existing().featured &&
-            incoming().breaking == existing().breaking &&
+            (!('pinnedInFeed' in existing()) && (!('pinnedInFeed' in incoming()) || incoming().pinnedInFeed == false)) ||
+            ('pinnedInFeed' in existing() && 'pinnedInFeed' in incoming() && incoming().pinnedInFeed == existing().pinnedInFeed)
+          ) &&
+          incoming().viewCount == existing().viewCount &&
+          incoming().commentCount == existing().commentCount &&
+          (
+            incoming().status in ['draft', 'in_review', 'scheduled', 'unpublished'] ||
             (
-              (!('pinnedInFeed' in existing()) && (!('pinnedInFeed' in incoming()) || incoming().pinnedInFeed == false)) ||
-              ('pinnedInFeed' in existing() && 'pinnedInFeed' in incoming() && incoming().pinnedInFeed == existing().pinnedInFeed)
-            ) &&
-            incoming().viewCount == existing().viewCount &&
-            incoming().commentCount == existing().commentCount &&
-            (
-              incoming().status in ['draft', 'in_review', 'scheduled', 'unpublished'] ||
+              incoming().status == 'published' &&
               (
-                incoming().status == 'published' &&
-                (
-                  !exists(/databases/$(database)/documents/site_config/main) ||
-                  get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
-                )
+                !exists(/databases/$(database)/documents/site_config/main) ||
+                get(/databases/$(database)/documents/site_config/main).data.autoPublishCollaborators == true
               )
             )
-          ) ||
-          (
-            existing().status == 'published' &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['viewCount']) &&
-            incoming().viewCount == existing().viewCount + 1
-          ) ||
-          (
-            existing().status == 'published' &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['commentCount']) &&
-            incoming().commentCount == existing().commentCount + 1
           )
-        );
+        ) ||
+        (
+          isValidPost(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          existing().status == 'published' &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['viewCount']) &&
+          incoming().viewCount == existing().viewCount + 1
+        ) ||
+        (
+          isValidPost(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          existing().status == 'published' &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['commentCount']) &&
+          incoming().commentCount == existing().commentCount + 1
+        )
+      );
       allow delete: if isValidId(postId) && (
         isAdmin() ||
         (isSignedIn() && existing().authorId == request.auth.uid)

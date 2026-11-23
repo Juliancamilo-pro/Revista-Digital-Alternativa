@@ -22,6 +22,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../lib/firebase';
 import { clearCalendarAccessToken } from '../lib/googleCalendar';
+import { runIdempotentPostsMigration } from '../lib/postMigration';
 import { runOneTimeAdminSampleCleanup } from '../lib/seedData';
 import { calculateAdultAgeFromBirthYear, hashInviteCode, toDate, uploadMediaAsset } from '../lib/utils';
 import {
@@ -32,6 +33,22 @@ import {
   Post,
   UserAccount,
 } from '../types/editorial';
+
+export const ADMIN_OWNER_EMAIL = 'trujillogordillooo@gmail.com';
+
+export interface AdminDiagnostics {
+  uid: string | null;
+  email: string | null;
+  emailMatchesOwner: boolean;
+  emailVerified: boolean;
+  hasAdminDoc: boolean;
+  userRole: string | null;
+  userStatus: string | null;
+  bootstrapClaimed: boolean;
+  bootstrapAdminUid: string | null;
+  bootstrapError: string | null;
+  reason: string;
+}
 
 export interface RegisterCollaboratorInput {
   outletName: string;
@@ -61,11 +78,13 @@ interface AuthContextValue {
   isActiveCollaborator: boolean;
   authReady: boolean;
   bookmarks: BookmarkItem[];
+  adminDiagnostics: AdminDiagnostics;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   registerReader: (name: string, email: string, password: string) => Promise<void>;
   registerCollaborator: (params: RegisterCollaboratorInput) => Promise<{ status: 'active' | 'pending' }>;
   sendPasswordReset: (email: string) => Promise<void>;
+  sendCurrentUserVerificationEmail: () => Promise<void>;
   logout: () => Promise<void>;
   toggleBookmark: (post: Post) => Promise<boolean>;
   refreshUserDocs: () => Promise<void>;
@@ -103,25 +122,133 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
   const [collaboratorProfile, setCollaboratorProfile] = useState<CollaboratorPublic | null>(null);
   const [isAdminDoc, setIsAdminDoc] = useState(false);
+  const [bootstrapMeta, setBootstrapMeta] = useState<{ adminClaimed?: boolean; adminUid?: string } | null>(null);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const cleanupTriggeredRef = useRef(false);
+
+  const ensureAdminBootstrap = async (
+    user: User,
+    initialAdminExists: boolean,
+    initialBootstrapData: { adminClaimed?: boolean; adminUid?: string } | null,
+    initialUserData: UserAccount | null
+  ): Promise<{ adminExists: boolean; bootstrapData: { adminClaimed?: boolean; adminUid?: string } | null; userData: UserAccount | null }> => {
+    const emailNormalized = (user.email || '').trim().toLowerCase();
+    if (emailNormalized !== ADMIN_OWNER_EMAIL) {
+      return { adminExists: initialAdminExists, bootstrapData: initialBootstrapData, userData: initialUserData };
+    }
+
+    const needAdminDoc = !initialAdminExists;
+    const needBootstrapDoc = !initialBootstrapData?.adminClaimed;
+    const needUserDoc =
+      !initialUserData || initialUserData.role !== 'admin' || initialUserData.status !== 'active';
+
+    if (!needAdminDoc && !needBootstrapDoc && !needUserDoc) {
+      setBootstrapError(null);
+      return { adminExists: true, bootstrapData: initialBootstrapData, userData: initialUserData };
+    }
+
+    const safeEmail = (user.email || ADMIN_OWNER_EMAIL).trim().slice(0, 200);
+    const rawName = (user.displayName || 'Dirección Editorial').trim().slice(0, 120);
+    const safeName = rawName.length >= 2 ? rawName : 'Dirección Editorial';
+
+    try {
+      const batch = writeBatch(db);
+      if (needAdminDoc) {
+        batch.set(doc(db, 'admins', user.uid), {
+          uid: user.uid,
+          email: safeEmail,
+          displayName: safeName,
+          role: 'admin',
+          createdAt: serverTimestamp(),
+        });
+      }
+      if (needBootstrapDoc) {
+        batch.set(doc(db, 'site_meta', 'bootstrap'), {
+          adminClaimed: true,
+          adminUid: user.uid,
+          claimedAt: serverTimestamp(),
+        });
+      }
+      if (!initialUserData) {
+        batch.set(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: safeEmail,
+          displayName: safeName,
+          role: 'admin',
+          status: 'active',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else if (needUserDoc) {
+        batch.set(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: initialUserData.email || safeEmail,
+          displayName: initialUserData.displayName || safeName,
+          role: 'admin',
+          status: 'active',
+          createdAt: initialUserData.createdAt || serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      setBootstrapError(null);
+
+      const [nextAdminSnap, nextBootstrapSnap, nextUserSnap] = await Promise.all([
+        getDoc(doc(db, 'admins', user.uid)).catch(() => null),
+        getDoc(doc(db, 'site_meta', 'bootstrap')).catch(() => null),
+        getDoc(doc(db, 'users', user.uid)).catch(() => null),
+      ]);
+
+      return {
+        adminExists: Boolean(nextAdminSnap?.exists()),
+        bootstrapData: nextBootstrapSnap?.exists()
+          ? (nextBootstrapSnap.data() as { adminClaimed?: boolean; adminUid?: string })
+          : initialBootstrapData,
+        userData: nextUserSnap?.exists() ? (nextUserSnap.data() as UserAccount) : initialUserData,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('No se pudo completar el bootstrap automático de administrador:', err);
+      setBootstrapError(msg);
+      return { adminExists: initialAdminExists, bootstrapData: initialBootstrapData, userData: initialUserData };
+    }
+  };
 
   const loadUserDocs = async (user: User | null) => {
     if (!user) {
       setUserAccount(null);
       setCollaboratorProfile(null);
       setIsAdminDoc(false);
+      setBootstrapMeta(null);
+      setBootstrapError(null);
       return;
     }
     try {
-      const [adminSnap, userSnap, collabSnap] = await Promise.all([
+      const [adminSnap, bootstrapSnap, userSnap, collabSnap] = await Promise.all([
         getDoc(doc(db, 'admins', user.uid)).catch(() => null),
+        getDoc(doc(db, 'site_meta', 'bootstrap')).catch(() => null),
         getDoc(doc(db, 'users', user.uid)).catch(() => null),
         getDoc(doc(db, 'collaborators_public', user.uid)).catch(() => null),
       ]);
-      setIsAdminDoc(Boolean(adminSnap?.exists()));
-      setUserAccount(userSnap && userSnap.exists() ? (userSnap.data() as UserAccount) : null);
+
+      const initialAdminExists = Boolean(adminSnap?.exists());
+      const initialBootstrapData = bootstrapSnap?.exists()
+        ? (bootstrapSnap.data() as { adminClaimed?: boolean; adminUid?: string })
+        : null;
+      const initialUserData = userSnap && userSnap.exists() ? (userSnap.data() as UserAccount) : null;
+
+      const resolved = await ensureAdminBootstrap(
+        user,
+        initialAdminExists,
+        initialBootstrapData,
+        initialUserData
+      );
+
+      setIsAdminDoc(resolved.adminExists);
+      setBootstrapMeta(resolved.bootstrapData);
+      setUserAccount(resolved.userData);
       setCollaboratorProfile(collabSnap && collabSnap.exists() ? (collabSnap.data() as CollaboratorPublic) : null);
     } catch (err) {
       console.error('Error cargando perfil de usuario:', err);
@@ -159,18 +286,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, [firebaseUser]);
 
-  const isBootstrappedEmailAdmin =
-    Boolean(firebaseUser?.email === 'trujillogordillooo@gmail.com' && firebaseUser?.emailVerified);
-  const isAdmin = isAdminDoc || isBootstrappedEmailAdmin || userAccount?.role === 'admin';
+  const ownerEmailMatches =
+    (firebaseUser?.email || '').trim().toLowerCase() === ADMIN_OWNER_EMAIL;
+  const isBootstrappedEmailAdmin = Boolean(ownerEmailMatches && firebaseUser?.emailVerified);
+  const isActiveAdminAccount =
+    userAccount?.role === 'admin' && userAccount?.status === 'active';
+  const isBootstrappedUidMatch = Boolean(
+    firebaseUser && bootstrapMeta?.adminUid && bootstrapMeta.adminUid === firebaseUser.uid
+  );
+  const isAdmin =
+    isAdminDoc || isActiveAdminAccount || isBootstrappedUidMatch || isBootstrappedEmailAdmin;
   const isCollaborator = userAccount?.role === 'collaborator';
   const isActiveCollaborator = isCollaborator && userAccount?.status === 'active';
 
-  // Limpieza automática única y segura al ingresar el administrador
+  const adminDiagnostics: AdminDiagnostics = (() => {
+    if (!firebaseUser) {
+      return {
+        uid: null,
+        email: null,
+        emailMatchesOwner: false,
+        emailVerified: false,
+        hasAdminDoc: false,
+        userRole: null,
+        userStatus: null,
+        bootstrapClaimed: Boolean(bootstrapMeta?.adminClaimed),
+        bootstrapAdminUid: bootstrapMeta?.adminUid || null,
+        bootstrapError: null,
+        reason: 'No hay ninguna sesión iniciada.',
+      };
+    }
+
+    let reason = 'Acceso de administrador verificado.';
+    if (!isAdmin) {
+      if (!ownerEmailMatches) {
+        reason = `La sesión actual (${firebaseUser.email || 'sin correo'}) no corresponde a ${ADMIN_OWNER_EMAIL} ni figura en /admins/${firebaseUser.uid}.`;
+      } else if (userAccount?.role === 'admin' && userAccount?.status !== 'active') {
+        reason = `La cuenta de administrador existe en users/${firebaseUser.uid}, pero su estado es "${userAccount.status}" (se requiere "active").`;
+      } else if (bootstrapMeta?.adminClaimed && bootstrapMeta.adminUid !== firebaseUser.uid && !firebaseUser.emailVerified) {
+        reason =
+          'El correo coincide con la cuenta administradora, pero el correo no está verificado y el bloqueo /site_meta/bootstrap ya fue reclamado por otro UID. Verifica tu correo o inicia sesión con Google.';
+      } else if (bootstrapError) {
+        reason = `Falló la creación automática de /admins/${firebaseUser.uid}: ${bootstrapError}`;
+      } else {
+        reason = 'Faltan los documentos /admins/{uid} o /users/{uid} con rol "admin" activo en la base nombrada.';
+      }
+    }
+
+    return {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email || null,
+      emailMatchesOwner: ownerEmailMatches,
+      emailVerified: Boolean(firebaseUser.emailVerified),
+      hasAdminDoc: isAdminDoc,
+      userRole: userAccount?.role || null,
+      userStatus: userAccount?.status || null,
+      bootstrapClaimed: Boolean(bootstrapMeta?.adminClaimed),
+      bootstrapAdminUid: bootstrapMeta?.adminUid || null,
+      bootstrapError,
+      reason,
+    };
+  })();
+
+  // Limpieza automática única y migración idempotente de posts al ingresar el administrador
   useEffect(() => {
     if (!authReady || !firebaseUser || !isAdmin || cleanupTriggeredRef.current) return;
     cleanupTriggeredRef.current = true;
     const adminName = userAccount?.displayName || firebaseUser.displayName || 'Administrador';
-    runOneTimeAdminSampleCleanup(firebaseUser.uid, adminName);
+    runOneTimeAdminSampleCleanup(firebaseUser.uid, adminName).then(() => {
+      runIdempotentPostsMigration(firebaseUser.uid, adminName).catch((err) =>
+        console.warn('Aviso en migración automática de publicaciones:', err)
+      );
+    });
   }, [authReady, firebaseUser, isAdmin, userAccount?.displayName]);
 
   const loginWithEmail = async (email: string, password: string) => {
@@ -185,21 +371,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithGoogle = async () => {
     try {
       const cred = await signInWithPopup(auth, googleProvider);
-      const userSnap = await getDoc(doc(db, 'users', cred.user.uid));
-      if (!userSnap.exists()) {
-        const rawEmail = (cred.user.email || 'lector@alternativa.local').trim().slice(0, 200);
-        const safeEmail = rawEmail.length >= 3 ? rawEmail : 'lector@alternativa.local';
-        const rawName = (cred.user.displayName || 'Lector').trim().slice(0, 120);
-        const safeName = rawName.length >= 2 ? rawName : 'Lector';
-        await setDoc(doc(db, 'users', cred.user.uid), {
-          uid: cred.user.uid,
-          email: safeEmail,
-          displayName: safeName,
-          role: 'reader',
-          status: 'active',
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
+      const emailNormalized = (cred.user.email || '').trim().toLowerCase();
+      if (emailNormalized !== ADMIN_OWNER_EMAIL) {
+        const userSnap = await getDoc(doc(db, 'users', cred.user.uid));
+        if (!userSnap.exists()) {
+          const rawEmail = (cred.user.email || 'lector@alternativa.local').trim().slice(0, 200);
+          const safeEmail = rawEmail.length >= 3 ? rawEmail : 'lector@alternativa.local';
+          const rawName = (cred.user.displayName || 'Lector').trim().slice(0, 120);
+          const safeName = rawName.length >= 2 ? rawName : 'Lector';
+          await setDoc(doc(db, 'users', cred.user.uid), {
+            uid: cred.user.uid,
+            email: safeEmail,
+            displayName: safeName,
+            role: 'reader',
+            status: 'active',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
       }
       await loadUserDocs(cred.user);
     } catch (err) {
@@ -412,12 +601,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const sendCurrentUserVerificationEmail = async () => {
+    if (!auth.currentUser) {
+      throw new Error('Debes iniciar sesión primero.');
+    }
+    try {
+      await sendEmailVerification(auth.currentUser);
+    } catch (err) {
+      throw new Error(mapFirebaseAuthError(err));
+    }
+  };
+
   const logout = async () => {
     clearCalendarAccessToken();
     await signOut(auth);
     setUserAccount(null);
     setCollaboratorProfile(null);
     setIsAdminDoc(false);
+    setBootstrapMeta(null);
+    setBootstrapError(null);
     setBookmarks([]);
   };
 
@@ -459,11 +661,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isActiveCollaborator,
         authReady,
         bookmarks,
+        adminDiagnostics,
         loginWithEmail,
         loginWithGoogle,
         registerReader,
         registerCollaborator,
         sendPasswordReset,
+        sendCurrentUserVerificationEmail,
         logout,
         toggleBookmark,
         refreshUserDocs: () => loadUserDocs(auth.currentUser),

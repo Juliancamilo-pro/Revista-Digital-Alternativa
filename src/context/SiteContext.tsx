@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { isTimestampLike } from '../lib/postValidation';
 import { DEFAULT_ADMIN_IDENTITIES, DEFAULT_CATEGORIES, DEFAULT_HOMEPAGE_SECTIONS, DEFAULT_SITE_CONFIG } from '../lib/seedData';
 import { toDate, updateDynamicAppIcons } from '../lib/utils';
 import { AdminPublicIdentity, Category, CollaboratorPublic, HomepageSectionConfig, Post, SeriesItem, SiteConfig } from '../types/editorial';
@@ -289,9 +290,14 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       for (const p of candidates) {
         if (p.status === 'scheduled' && p.scheduledFor && toDate(p.scheduledFor).getTime() <= now) {
+          const safePublishedAt = p.publishedAt
+            ? isTimestampLike(p.publishedAt)
+              ? p.publishedAt
+              : Timestamp.fromDate(toDate(p.publishedAt))
+            : serverTimestamp();
           updateDoc(doc(db, 'posts', p.id), {
             status: 'published',
-            publishedAt: p.publishedAt || serverTimestamp(),
+            publishedAt: safePublishedAt,
             updatedAt: serverTimestamp(),
           }).catch(() => undefined);
         }

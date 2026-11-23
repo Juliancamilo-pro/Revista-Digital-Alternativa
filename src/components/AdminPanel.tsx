@@ -46,6 +46,8 @@ import { useSite } from '../context/SiteContext';
 import { logAdminActivity } from '../lib/activityLog';
 import { isAppCheckConfigured } from '../lib/appCheck';
 import { db } from '../lib/firebase';
+import { runIdempotentPostsMigration } from '../lib/postMigration';
+import { FIRESTORE_NAMED_DATABASE_ID, isTimestampLike } from '../lib/postValidation';
 import {
   buildCleanDuplicatePostPayload,
   calculateAdultAgeFromBirthYear,
@@ -101,7 +103,14 @@ type AdminTab =
   | 'settings';
 
 export const AdminPanel: React.FC = () => {
-  const { firebaseUser, isAdmin } = useAuth();
+  const {
+    firebaseUser,
+    isAdmin,
+    adminDiagnostics,
+    refreshUserDocs,
+    sendCurrentUserVerificationEmail,
+    logout,
+  } = useAuth();
   const {
     siteConfig,
     allPostsForAdmin,
@@ -116,6 +125,9 @@ export const AdminPanel: React.FC = () => {
   const [editingPost, setEditingPost] = useState<Post | null | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<'all' | PostStatus>('all');
   const [feedback, setFeedback] = useState('');
+  const [migratingPosts, setMigratingPosts] = useState(false);
+  const [diagActionMsg, setDiagActionMsg] = useState('');
+  const [diagCopied, setDiagCopied] = useState(false);
 
   // Admin-only collections state
   const [inviteSecret, setInviteSecret] = useState<InviteSecret | null>(null);
@@ -369,19 +381,167 @@ export const AdminPanel: React.FC = () => {
   }, [filteredEvents]);
 
   if (!firebaseUser || !isAdmin) {
+    const diagnosticPayload = JSON.stringify(
+      {
+        databaseId: FIRESTORE_NAMED_DATABASE_ID,
+        uid: adminDiagnostics.uid,
+        email: adminDiagnostics.email,
+        emailMatchesOwner: adminDiagnostics.emailMatchesOwner,
+        emailVerified: adminDiagnostics.emailVerified,
+        hasAdminDoc: adminDiagnostics.hasAdminDoc,
+        userRole: adminDiagnostics.userRole,
+        userStatus: adminDiagnostics.userStatus,
+        bootstrapClaimed: adminDiagnostics.bootstrapClaimed,
+        bootstrapAdminUid: adminDiagnostics.bootstrapAdminUid,
+        bootstrapError: adminDiagnostics.bootstrapError,
+        reason: adminDiagnostics.reason,
+      },
+      null,
+      2
+    );
+
+    const handleCopyDiag = async () => {
+      try {
+        await navigator.clipboard.writeText(diagnosticPayload);
+        setDiagCopied(true);
+        setTimeout(() => setDiagCopied(false), 2500);
+      } catch {
+        setDiagActionMsg('No se pudo copiar al portapapeles automáticamente.');
+      }
+    };
+
+    const handleResyncAdmin = async () => {
+      setDiagActionMsg('Sincronizando permisos y perfil de administrador...');
+      await refreshUserDocs();
+      setDiagActionMsg('Sincronización completada. Si el problema persiste, verifica las reglas en Firebase.');
+    };
+
+    const handleSendVerification = async () => {
+      try {
+        await sendCurrentUserVerificationEmail();
+        setDiagActionMsg('Correo de verificación enviado. Revisa tu bandeja de entrada y vuelve a sincronizar.');
+      } catch (err) {
+        setDiagActionMsg(err instanceof Error ? err.message : 'No se pudo enviar el correo de verificación.');
+      }
+    };
+
     return (
-      <main className="max-w-lg mx-auto px-4 py-16 text-center space-y-4">
-        <h1 className="font-display text-3xl font-extrabold uppercase">Acceso exclusivo de administración</h1>
-        <p className="text-neutral-600 dark:text-neutral-400">
-          Inicia sesión con la cuenta de administrador para gestionar la revista.
-        </p>
-        <button
-          type="button"
-          onClick={() => setAuthModalOpen(true)}
-          className="px-6 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase text-xs cursor-pointer"
-        >
-          Iniciar sesión
-        </button>
+      <main className="max-w-2xl mx-auto px-4 py-14 space-y-6">
+        <div className="text-center space-y-3">
+          <h1 className="font-display text-3xl font-extrabold uppercase tracking-tight">
+            Acceso exclusivo de administración
+          </h1>
+          <p className="text-neutral-600 dark:text-neutral-400">
+            {firebaseUser
+              ? adminDiagnostics.reason
+              : 'Inicia sesión con la cuenta de administrador para gestionar la revista.'}
+          </p>
+        </div>
+
+        {!firebaseUser ? (
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setAuthModalOpen(true)}
+              className="px-6 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase text-xs cursor-pointer"
+            >
+              Iniciar sesión
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-4 text-left">
+            <div className="flex items-center justify-between gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+              <span className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
+                Diagnóstico de permisos de administrador
+              </span>
+              <span className="text-xs font-mono text-neutral-500">
+                DB: {FIRESTORE_NAMED_DATABASE_ID}
+              </span>
+            </div>
+
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
+              <div>
+                <dt className="text-neutral-500 uppercase font-display">Correo actual</dt>
+                <dd className="font-mono break-all">{adminDiagnostics.email || 'Sin correo'}</dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500 uppercase font-display">UID</dt>
+                <dd className="font-mono break-all">{adminDiagnostics.uid}</dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500 uppercase font-display">Correo verificado</dt>
+                <dd>{adminDiagnostics.emailVerified ? 'Sí' : 'No'}</dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500 uppercase font-display">Rol / Estado en users</dt>
+                <dd>{`${adminDiagnostics.userRole || 'sin doc'} / ${adminDiagnostics.userStatus || 'sin estado'}`}</dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500 uppercase font-display">Documento /admins</dt>
+                <dd>{adminDiagnostics.hasAdminDoc ? 'Presente' : 'Ausente'}</dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500 uppercase font-display">Bootstrap reclamado</dt>
+                <dd>
+                  {adminDiagnostics.bootstrapClaimed
+                    ? `Sí (${adminDiagnostics.bootstrapAdminUid || 'uid'})`
+                    : 'No reclamado'}
+                </dd>
+              </div>
+            </dl>
+
+            {adminDiagnostics.bootstrapError && (
+              <div className="rounded-xl p-3 bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-xs text-red-800 dark:text-red-200">
+                <strong>Error de bootstrap:</strong> {adminDiagnostics.bootstrapError}
+              </div>
+            )}
+
+            {diagActionMsg && (
+              <div className="rounded-xl p-3 bg-neutral-100 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-xs">
+                {diagActionMsg}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleResyncAdmin}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase text-xs cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reintentar sincronización</span>
+              </button>
+
+              {!firebaseUser.emailVerified && (
+                <button
+                  type="button"
+                  onClick={handleSendVerification}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 font-display font-bold uppercase text-xs cursor-pointer hover:border-black dark:hover:border-white"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Enviar verificación</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleCopyDiag}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 font-display font-bold uppercase text-xs cursor-pointer hover:border-black dark:hover:border-white"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{diagCopied ? 'Diagnóstico copiado' : 'Copiar diagnóstico'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => logout()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 font-display font-bold uppercase text-xs cursor-pointer hover:border-black dark:hover:border-white"
+              >
+                <span>Cerrar sesión</span>
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     );
   }
@@ -642,19 +802,56 @@ export const AdminPanel: React.FC = () => {
       {/* TAB 1: POSTS */}
       {tab === 'posts' && (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase">
-            {(['all', 'published', 'in_review', 'scheduled', 'draft', 'unpublished'] as const).map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setStatusFilter(st)}
-                className={`px-3.5 py-1.5 rounded-full border cursor-pointer transition-colors ${
-                  statusFilter === st ? 'bg-[var(--editorial-primary)] text-white border-[var(--editorial-primary)]' : 'border-neutral-300 dark:border-neutral-700'
-                }`}
-              >
-                {st === 'all' ? 'Todas' : st === 'in_review' ? 'Cola revisión' : st}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-display font-bold uppercase">
+            <div className="flex flex-wrap items-center gap-2">
+              {(['all', 'published', 'in_review', 'scheduled', 'draft', 'unpublished'] as const).map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3.5 py-1.5 rounded-full border cursor-pointer transition-colors ${
+                    statusFilter === st ? 'bg-[var(--editorial-primary)] text-white border-[var(--editorial-primary)]' : 'border-neutral-300 dark:border-neutral-700'
+                  }`}
+                >
+                  {st === 'all' ? 'Todas' : st === 'in_review' ? 'Cola revisión' : st}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={migratingPosts}
+              onClick={async () => {
+                setMigratingPosts(true);
+                try {
+                  const firstCat = categories[0];
+                  const report = await runIdempotentPostsMigration(firebaseUser.uid, adminActorName, {
+                    force: true,
+                    fallbackCategory: firstCat
+                      ? { id: firstCat.id, name: firstCat.name, slug: firstCat.slug }
+                      : undefined,
+                  });
+                  if (report.failedIds.length > 0) {
+                    notify(
+                      `Revisadas ${report.checkedCount}: ${report.migratedCount} normalizadas, ${report.skippedCount} conformes, ${report.failedIds.length} con error.`
+                    );
+                  } else if (report.migratedCount === 0) {
+                    notify(`Todas las publicaciones (${report.checkedCount}) ya cumplen con las reglas de Firestore.`);
+                  } else {
+                    notify(
+                      `Normalización completa: ${report.migratedCount} publicaciones actualizadas (${report.skippedCount} ya conformes).`
+                    );
+                  }
+                } catch (err) {
+                  notify(err instanceof Error ? err.message : 'Error al normalizar publicaciones antiguas.');
+                } finally {
+                  setMigratingPosts(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${migratingPosts ? 'animate-spin' : ''}`} aria-hidden="true" />
+              <span>{migratingPosts ? 'Normalizando...' : 'Normalizar publicaciones antiguas'}</span>
+            </button>
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414]">
@@ -726,11 +923,14 @@ export const AdminPanel: React.FC = () => {
                           onClick={async () => {
                             try {
                               const nextStatus = p.status === 'published' ? 'unpublished' : 'published';
+                              const safePublishedAt = p.publishedAt
+                                ? isTimestampLike(p.publishedAt)
+                                  ? p.publishedAt
+                                  : Timestamp.fromDate(toDate(p.publishedAt))
+                                : serverTimestamp();
                               await updateDoc(doc(db, 'posts', p.id), {
                                 status: nextStatus,
-                                ...(nextStatus === 'published'
-                                  ? { publishedAt: p.publishedAt || serverTimestamp() }
-                                  : {}),
+                                ...(nextStatus === 'published' ? { publishedAt: safePublishedAt } : {}),
                                 updatedAt: serverTimestamp(),
                               });
                               await logAdminActivity(

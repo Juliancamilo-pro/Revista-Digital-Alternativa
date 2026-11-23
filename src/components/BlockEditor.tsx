@@ -1,10 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { deleteField, doc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import {
+  deleteField,
+  doc,
+  getDoc,
+  increment,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore';
 import {
   ArrowDown,
   ArrowUp,
   BookMarked,
   Captions,
+  Check,
+  Copy,
   CopyPlus,
   Crosshair,
   Eye,
@@ -28,7 +39,16 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
 import { buildApaReferenceString } from '../lib/apa';
-import { db } from '../lib/firebase';
+import { db, OperationType } from '../lib/firebase';
+import {
+  diagnosePostSaveFailure,
+  estimateUtf8JsonBytes,
+  isValidFirestoreId,
+  mergeExistingAndPatch,
+  POST_ALLOWED_KEYS_SET,
+  PostSaveDiagnosis,
+  validatePostDocumentAgainstRules,
+} from '../lib/postValidation';
 import {
   encodeMediaUrlWithMeta,
   estimateReadTime,
@@ -150,7 +170,14 @@ function parseTimestampToSec(raw: string): number {
 }
 
 export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, onCancel }) => {
-  const { firebaseUser, userAccount, collaboratorProfile, isAdmin } = useAuth();
+  const {
+    firebaseUser,
+    userAccount,
+    collaboratorProfile,
+    isAdmin,
+    isActiveCollaborator,
+    adminDiagnostics,
+  } = useAuth();
   const { siteConfig, categories, seriesList, publishedPosts, adminIdentities } = useSite();
 
   const [detachedAsCopy, setDetachedAsCopy] = useState(false);
@@ -254,6 +281,8 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
   const [autoSavedAt, setAutoSavedAt] = useState<string>('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [diagnostic, setDiagnostic] = useState<PostSaveDiagnosis | null>(null);
+  const [copiedDiag, setCopiedDiag] = useState(false);
 
   // Sync categoryId if categories load after mount and current selection is missing
   useEffect(() => {
@@ -621,6 +650,8 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
   const handleSave = async (requestedStatus: PostStatus) => {
     setError('');
     setNotice('');
+    setDiagnostic(null);
+    setCopiedDiag(false);
     if (!firebaseUser) {
       setError('Debes iniciar sesión para guardar.');
       return;
@@ -650,9 +681,14 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
 
     const ser = seriesList.find((s) => s.id === seriesId);
     const id = effectiveInitialPost?.id || generateId('post');
-    const slug = effectiveInitialPost?.slug || `${slugify(title)}-${id.slice(-4)}`;
-    const readTime = estimateReadTime(blocks, subtitle);
-    const cleanTags = tags.length > 0 ? tags : [cat.slug];
+    const rawSlug = (effectiveInitialPost?.slug || `${slugify(title)}-${id.slice(-4)}`).trim().slice(0, 240);
+    const slug = rawSlug.length >= 2 ? rawSlug : `nota-${id.slice(-6)}`;
+    const readTime = Math.max(1, Math.min(180, estimateReadTime(blocks, subtitle)));
+    const sanitizedTags = tags
+      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      .map((t) => t.trim().slice(0, 40))
+      .slice(0, 12);
+    const cleanTags = sanitizedTags.length > 0 ? sanitizedTags : [cat.slug.slice(0, 40) || 'actualidad'];
 
     // Resolve public author identity safely
     let authorProfileId = firebaseUser.uid;
@@ -810,7 +846,11 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       }
     };
 
-    const applyOptionals = (target: Record<string, unknown>, isEdit: boolean) => {
+    const applyOptionals = (
+      target: Record<string, unknown>,
+      isEdit: boolean,
+      existingRaw?: Record<string, unknown> | null
+    ) => {
       setOrClearOptional(target, 'seriesId', ser ? ser.id : '', isEdit);
       setOrClearOptional(target, 'seriesTitle', ser ? ser.title.slice(0, 160) : '', isEdit);
       setOrClearOptional(target, 'authorAvatar', safeAuthorAvatar, isEdit);
@@ -843,10 +883,21 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       setOrClearOptional(target, 'documentTitle', validDocumentTitle, isEdit);
 
       if (finalStatus === 'published') {
-        target.publishedAt = effectiveInitialPost?.publishedAt || serverTimestamp();
+        const existingPub = existingRaw?.publishedAt ?? effectiveInitialPost?.publishedAt;
+        if (existingPub instanceof Timestamp) {
+          target.publishedAt = existingPub;
+        } else if (existingPub) {
+          target.publishedAt = Timestamp.fromDate(toDate(existingPub));
+        } else {
+          target.publishedAt = serverTimestamp();
+        }
+      } else if (isEdit && existingRaw && 'publishedAt' in existingRaw && !(existingRaw.publishedAt instanceof Timestamp)) {
+        // Limpiar publishedAt antiguo no-Timestamp si quedó guardado como borrador
+        target.publishedAt = deleteField();
       }
+
       if (finalStatus === 'scheduled' && scheduledForInput) {
-        target.scheduledFor = new Date(scheduledForInput);
+        target.scheduledFor = Timestamp.fromDate(new Date(scheduledForInput));
       } else if (isEdit) {
         target.scheduledFor = deleteField();
       }
@@ -920,9 +971,20 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     };
 
     setSaving(true);
+    let preflightInvalidFields: string[] = [];
+    let preflightBytes = 0;
+    let existingAuthorId: string | null = effectiveInitialPost?.authorId || null;
+
     try {
       saveRevisionSnapshot(`Guardado (${finalStatus})`);
       if (effectiveInitialPost) {
+        const existingSnap = await getDoc(doc(db, 'posts', id)).catch(() => null);
+        const existingRaw: Record<string, unknown> =
+          existingSnap && existingSnap.exists()
+            ? (existingSnap.data() as Record<string, unknown>)
+            : (effectiveInitialPost as unknown as Record<string, unknown>);
+        existingAuthorId = typeof existingRaw.authorId === 'string' ? existingRaw.authorId : existingAuthorId;
+
         const updatePayload: Record<string, unknown> = {
           ...sharedEditableFields,
           ...(isAdmin
@@ -933,7 +995,51 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
               }
             : {}),
         };
-        applyOptionals(updatePayload, true);
+        applyOptionals(updatePayload, true, existingRaw);
+
+        // Normalización segura en update: eliminar claves heredadas fuera de hasOnly y completar faltantes de hasAll
+        for (const key of Object.keys(existingRaw)) {
+          if (!POST_ALLOWED_KEYS_SET.has(key)) {
+            updatePayload[key] = deleteField();
+          }
+        }
+        if (
+          'audioDurationSec' in existingRaw &&
+          (typeof existingRaw.audioDurationSec !== 'number' ||
+            existingRaw.audioDurationSec < 0 ||
+            existingRaw.audioDurationSec > 86400)
+        ) {
+          updatePayload.audioDurationSec = deleteField();
+        }
+
+        if (isAdmin) {
+          if (typeof existingRaw.id !== 'string' || existingRaw.id !== id) updatePayload.id = id;
+          if (!isValidFirestoreId(existingRaw.authorId)) updatePayload.authorId = firebaseUser.uid;
+          if (typeof existingRaw.isSample !== 'boolean') updatePayload.isSample = false;
+          if (typeof existingRaw.viewCount !== 'number' || existingRaw.viewCount < 0) updatePayload.viewCount = 0;
+          if (typeof existingRaw.commentCount !== 'number' || existingRaw.commentCount < 0) updatePayload.commentCount = 0;
+          if (!(existingRaw.createdAt instanceof Timestamp)) {
+            updatePayload.createdAt = existingRaw.createdAt
+              ? Timestamp.fromDate(toDate(existingRaw.createdAt))
+              : serverTimestamp();
+          }
+        }
+
+        const simulatedDoc = mergeExistingAndPatch(existingRaw, updatePayload);
+        preflightBytes = estimateUtf8JsonBytes(simulatedDoc);
+        preflightInvalidFields = validatePostDocumentAgainstRules(simulatedDoc, {
+          isCreate: false,
+          isAdmin,
+          isActiveCollaborator,
+          uid: firebaseUser.uid,
+          autoPublishCollaborators: siteConfig.autoPublishCollaborators,
+          existingDoc: existingRaw,
+        });
+
+        if (preflightBytes > 980000) {
+          throw new Error('exceeds the maximum allowed size');
+        }
+
         await updateDoc(doc(db, 'posts', id), updatePayload);
       } else {
         const createPayload: Record<string, unknown> = {
@@ -948,7 +1054,21 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
           commentCount: 0,
           createdAt: serverTimestamp(),
         };
-        applyOptionals(createPayload, false);
+        applyOptionals(createPayload, false, null);
+
+        preflightBytes = estimateUtf8JsonBytes(createPayload);
+        preflightInvalidFields = validatePostDocumentAgainstRules(createPayload, {
+          isCreate: true,
+          isAdmin,
+          isActiveCollaborator,
+          uid: firebaseUser.uid,
+          autoPublishCollaborators: siteConfig.autoPublishCollaborators,
+        });
+
+        if (preflightBytes > 980000) {
+          throw new Error('exceeds the maximum allowed size');
+        }
+
         await setDoc(doc(db, 'posts', id), createPayload);
         if (collaboratorProfile && !isAdmin) {
           await updateDoc(doc(db, 'collaborators_public', firebaseUser.uid), {
@@ -960,19 +1080,42 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       localStorage.removeItem(draftStorageKey);
       onSaved(localSavedPost);
     } catch (err) {
-      console.error('Error guardando publicación:', err);
-      const code = (err as { code?: string })?.code || '';
-      if (code === 'permission-denied') {
-        setError(
-          'Permisos insuficientes en Firestore para guardar esta publicación. Verifica que tu cuenta esté activa y que las reglas de Firestore estén publicadas.'
-        );
-      } else {
-        setError(
-          err instanceof Error && !err.message.startsWith('{')
-            ? err.message
-            : 'No se pudo guardar la publicación. Verifica los campos y tus permisos editoriales.'
-        );
-      }
+      const diag = diagnosePostSaveFailure({
+        error: err,
+        operation: effectiveInitialPost ? 'update' : 'create',
+        postId: id,
+        uid: firebaseUser.uid,
+        role: userAccount?.role || null,
+        status: userAccount?.status || null,
+        isAdmin,
+        isActiveCollaborator,
+        emailVerified: Boolean(firebaseUser.emailVerified),
+        hasAdminDoc: adminDiagnostics.hasAdminDoc,
+        bootstrapClaimed: adminDiagnostics.bootstrapClaimed,
+        bootstrapAdminUid: adminDiagnostics.bootstrapAdminUid,
+        autoPublishCollaborators: siteConfig.autoPublishCollaborators,
+        estimatedBytes: preflightBytes,
+        invalidFields: preflightInvalidFields,
+        existingAuthorId,
+      });
+
+      console.error(
+        'Firestore Error:',
+        JSON.stringify({
+          error: err instanceof Error ? err.message : String(err),
+          operationType: effectiveInitialPost ? OperationType.UPDATE : OperationType.CREATE,
+          path: `posts/${id}`,
+          authInfo: {
+            userId: firebaseUser.uid,
+            emailVerified: firebaseUser.emailVerified,
+            role: userAccount?.role || null,
+            status: userAccount?.status || null,
+          },
+        })
+      );
+
+      setDiagnostic(diag);
+      setError(`${diag.headline}. ${diag.detail}`);
     } finally {
       setSaving(false);
     }
@@ -1097,8 +1240,33 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
       )}
 
       {error && (
-        <div role="alert" className="rounded-xl p-3 border border-red-500 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-sm">
-          {error}
+        <div role="alert" className="rounded-xl p-4 border border-red-500 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 text-sm space-y-2.5">
+          <p className="font-semibold">{error}</p>
+          {diagnostic && (
+            <div className="rounded-lg border border-red-300 dark:border-red-800/70 bg-white/80 dark:bg-[#141414] p-3 text-xs space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-display font-bold uppercase tracking-wider text-[11px] text-red-700 dark:text-red-300">
+                  Diagnóstico técnico (sin datos sensibles)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(diagnostic.diagnosticText).then(() => {
+                      setCopiedDiag(true);
+                      setTimeout(() => setCopiedDiag(false), 2500);
+                    }).catch(() => undefined);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-red-400 dark:border-red-700 font-display text-[11px] font-bold uppercase cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/40"
+                >
+                  {copiedDiag ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedDiag ? 'Copiado' : 'Copiar diagnóstico'}</span>
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap font-mono text-[11px] text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                {diagnostic.diagnosticText}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 

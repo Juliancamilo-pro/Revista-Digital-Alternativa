@@ -4,14 +4,24 @@ Este proyecto utiliza **Firebase (Authentication, Firestore y Storage)** con reg
 
 ---
 
-## ⚠️ Paso Obligatorio Tras Esta Actualización: Publicar Reglas en Firebase Console
+## ⚠️ Paso Obligatorio Tras Esta Actualización: Publicar Reglas en la Base Nombrada
 
-Cada vez que se agregan nuevas colecciones, controles de privacidad o subidas de archivos (como logos de partidos políticos o subtítulos WebVTT), **debes volver a publicar las reglas en Firebase Console**:
+Esta aplicación **NO** utiliza la base `(default)` de Firestore. Usa la base nombrada configurada en `firebase-applet-config.json` (`firestoreDatabaseId`):
+- **Proyecto:** `pro-pod-1bcxw`
+- **Base de datos Firestore:** `ai-studio-d59371ff-9be7-4b64-8860-ce29bd962f51`
 
-1. Entra a [Firebase Console](https://console.firebase.google.com/) y abre tu proyecto (`pro-pod-1bcxw`).
-2. Ve a **Firestore Database → Reglas (Rules)**.
-3. Copia todo el contenido del archivo `firestore.rules` del repositorio y pégalo en el editor de la consola, luego pulsa **Publicar (Publish)**.
-4. Ve también a **Storage → Reglas (Rules)** y pega las reglas actualizadas de la sección 6 de este archivo (incluyen `/party_logos/{uid}` y `/subtitles/{uid}` además de `/media/{uid}`, `/documents/{uid}` y `/site/`), luego pulsa **Publicar (Publish)**.
+### Opción A — Con Firebase CLI (recomendada)
+El repositorio incluye `firebase.json`, `.firebaserc` y `storage.rules` apuntando directamente a la base nombrada. Ejecuta:
+```bash
+firebase deploy --only firestore:rules,storage
+```
+
+### Opción B — Desde Firebase Console (manual)
+1. Entra a [Firebase Console](https://console.firebase.google.com/) y abre el proyecto **`pro-pod-1bcxw`**.
+2. Ve a **Compilación → Firestore Database**.
+3. **MUY IMPORTANTE:** En el selector superior de bases de datos (donde por defecto aparece `(default)`), cambia a **`ai-studio-d59371ff-9be7-4b64-8860-ce29bd962f51`**.
+4. Entra a la pestaña **Reglas (Rules)** dentro de esa base nombrada, pega todo el contenido de `firestore.rules` y pulsa **Publicar (Publish)**.
+5. Ve también a **Compilación → Storage → Reglas (Rules)**, pega todo el contenido de `storage.rules` (incluye `/posts/{uid}`, `/avatars/{uid}`, `/party_logos/{uid}`, `/subtitles/{uid}`, `/admin_identities/`, `/media/{uid}`, `/documents/{uid}` y `/site/`) y pulsa **Publicar (Publish)**.
 
 ---
 
@@ -60,44 +70,54 @@ El archivo `firebase-applet-config.json` ya contiene las credenciales públicas 
 ---
 
 ## 6. Reglas Actualizadas para Firebase Storage y Validación Local
-- Antes de publicar reglas manualmente en Firebase Console, valida `firestore.rules` localmente con:
+- Antes de publicar reglas manualmente o vía CLI, valida `firestore.rules` y la suite de pruebas localmente con:
   ```bash
   npx eslint firestore.rules && node --test firestore.rules.test.ts
   ```
-- En **Firebase Console → Storage → Reglas (Rules)**, publica estas reglas completas:
+- El archivo `storage.rules` del repositorio ya contiene las reglas completas. Si decides pegarlas manualmente en **Firebase Console → Storage → Reglas (Rules)**, usa este contenido exacto:
   ```
   rules_version = '2';
   service firebase.storage {
     match /b/{bucket}/o {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+      function isStorageAdmin() {
+        return isSignedIn() &&
+          ('email' in request.auth.token) &&
+          request.auth.token.email.lower() == 'trujillogordillooo@gmail.com';
+      }
+      function isOwnerOrAdmin(uid) {
+        return isSignedIn() && (request.auth.uid == uid || isStorageAdmin());
+      }
       match /{allPaths=**} {
         allow read: if true;
       }
+      match /posts/{uid}/{allPaths=**} {
+        allow write: if isOwnerOrAdmin(uid) && request.resource.size < 50 * 1024 * 1024;
+      }
+      match /avatars/{uid}/{allPaths=**} {
+        allow write: if isOwnerOrAdmin(uid) && request.resource.size < 10 * 1024 * 1024;
+      }
       match /media/{uid}/{allPaths=**} {
-        allow write: if request.auth != null
-          && (request.auth.uid == uid || request.auth.token.email == 'trujillogordillooo@gmail.com')
-          && request.resource.size < 50 * 1024 * 1024;
+        allow write: if isOwnerOrAdmin(uid) && request.resource.size < 50 * 1024 * 1024;
       }
       match /documents/{uid}/{allPaths=**} {
-        allow write: if request.auth != null
-          && (request.auth.uid == uid || request.auth.token.email == 'trujillogordillooo@gmail.com')
-          && request.resource.size < 50 * 1024 * 1024;
+        allow write: if isOwnerOrAdmin(uid) && request.resource.size < 50 * 1024 * 1024;
       }
       match /party_logos/{uid}/{allPaths=**} {
-        allow write: if request.auth != null
-          && (request.auth.uid == uid || request.auth.token.email == 'trujillogordillooo@gmail.com')
-          && request.resource.size < 10 * 1024 * 1024;
+        allow write: if isOwnerOrAdmin(uid) && request.resource.size < 10 * 1024 * 1024;
       }
       match /subtitles/{uid}/{allPaths=**} {
-        allow write: if request.auth != null
-          && (request.auth.uid == uid || request.auth.token.email == 'trujillogordillooo@gmail.com')
-          && request.resource.size < 5 * 1024 * 1024;
+        allow write: if isOwnerOrAdmin(uid) && request.resource.size < 5 * 1024 * 1024;
+      }
+      match /admin_identities/{allPaths=**} {
+        allow write: if isStorageAdmin() && request.resource.size < 10 * 1024 * 1024;
       }
       match /site/{allPaths=**} {
-        allow write: if request.auth != null
-          && request.auth.token.email == 'trujillogordillooo@gmail.com'
-          && request.resource.size < 25 * 1024 * 1024;
+        allow write: if isStorageAdmin() && request.resource.size < 25 * 1024 * 1024;
       }
     }
   }
   ```
-- Si tienes algún problema de CORS al subir multimedia o archivos `.vtt` desde el navegador hacia Storage, configura el bucket en Google Cloud SDK (`gsutil cors set cors.json gs://<TU_BUCKET>`) permitiendo el origen de tu dominio.
+- Si tienes algún problema de CORS al subir multimedia o archivos `.vtt` desde el navegador hacia Storage, configura el bucket en Google Cloud SDK (`gsutil cors set cors.json gs://pro-pod-1bcxw.firebasestorage.app`) permitiendo el origen de tu dominio.
