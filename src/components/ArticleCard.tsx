@@ -2,9 +2,11 @@ import React from 'react';
 import { Bookmark, Camera, FileSpreadsheet, FileText, Headphones, Pin, Play } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
+import { useTheme } from '../context/ThemeContext';
 import { formatDateEs, getEditorialKindLabel } from '../lib/utils';
 import { Post } from '../types/editorial';
 import { EditorialImage } from './EditorialImage';
+import { ThemeCardRibbon } from './themes/ThemeOrnaments';
 import { VerifiedBadge } from './VerifiedBadge';
 
 interface ArticleCardProps {
@@ -14,6 +16,7 @@ interface ArticleCardProps {
 
 export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'standard' }) => {
   const { navigate, setAuthModalOpen, isAuthorVerified, collaborators, siteConfig, adminIdentities } = useSite();
+  const { showHoverEffects } = useTheme();
   const { firebaseUser, bookmarks, toggleBookmark } = useAuth();
   const isSaved = bookmarks.some((b) => b.postId === post.id);
   const isCollabUid = collaborators.some((c) => c.uid === post.authorId);
@@ -122,7 +125,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
 
   if (variant === 'opinion') {
     return (
-      <article className="group h-full rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 flex flex-col justify-between shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300">
+      <article className={`group h-full rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] p-6 flex flex-col justify-between shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 ${showHoverEffects ? 'theme-card-hover-glow' : ''}`}>
         <div>
           <div className="flex items-center gap-3 pb-4 border-b border-neutral-200 dark:border-neutral-800">
             <div className="w-12 h-12 rounded-full shrink-0 overflow-hidden bg-neutral-200 dark:bg-neutral-800 ring-2 ring-[var(--editorial-primary)]/25">
@@ -190,7 +193,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
   const aspectClass = isLead || isVideo ? 'aspect-[16/9]' : 'aspect-[16/10]';
 
   return (
-    <article className="group h-full flex flex-col rounded-2xl overflow-hidden border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300">
+    <article className={`group h-full flex flex-col rounded-2xl overflow-hidden border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 ${showHoverEffects ? 'theme-card-hover-glow' : ''}`}>
       <a
         href={`/articulo/${post.slug}`}
         onClick={(e) => {
@@ -233,6 +236,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ post, variant = 'stand
             <span>Nota fijada</span>
           </div>
         )}
+        {(isLead || post.pinnedInFeed) && <ThemeCardRibbon />}
       </a>
 
       <div className="p-5 flex-1 flex flex-col justify-between">

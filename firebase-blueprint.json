@@ -181,6 +181,13 @@
         "heroPostId": { "type": "string", "maxLength": 128 },
         "featuredPostIds": { "type": "array" },
         "homepageSections": { "type": "array" },
+        "uiTexts": { "type": "object" },
+        "activeThemeId": { "type": "string", "maxLength": 64 },
+        "themeMode": { "type": "string", "enum": ["manual", "auto", "off"] },
+        "themeSettings": { "type": "object" },
+        "themeSchedule": { "type": "array" },
+        "customThemes": { "type": "array" },
+        "themeBanner": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["siteName", "primaryColor", "autoApproveCollaborators", "autoPublishCollaborators", "allowAnonymousComments", "commentModerationMode", "updatedAt"]

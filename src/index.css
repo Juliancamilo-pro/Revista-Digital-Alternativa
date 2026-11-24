@@ -7,6 +7,10 @@
     --editorial-accent: #991B1B;
     --editorial-paper: #F8F6F1;
     --editorial-ink: #111111;
+    --editorial-surface: #FFFFFF;
+    --editorial-muted: #525252;
+    --editorial-glow: rgba(185, 28, 28, 0.14);
+    --editorial-border: rgba(23, 23, 23, 0.16);
     --font-display: 'Barlow Condensed', system-ui, sans-serif;
     --font-serif: 'Source Serif 4', Georgia, serif;
     --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -15,12 +19,16 @@
   .dark {
     --editorial-paper: #0D0D0D;
     --editorial-ink: #F4F1EA;
+    --editorial-surface: #141414;
+    --editorial-muted: #A3A3A3;
+    --editorial-glow: rgba(185, 28, 28, 0.22);
+    --editorial-border: rgba(255, 255, 255, 0.12);
   }
 
   html {
     scroll-behavior: smooth;
     scrollbar-width: thin;
-    scrollbar-color: rgba(185, 28, 28, 0.45) transparent;
+    scrollbar-color: var(--editorial-primary) transparent;
   }
 
   body {
@@ -180,3 +188,66 @@ html.data-saver-active .backdrop-blur {
   background-size: 36px 36px;
 }
 
+/* Capas decorativas de temporada (accesibles, <= 6° de balanceo, parpadeo lento >= 2.6s) */
+@keyframes theme-ornament-sway {
+  0%, 100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+
+@keyframes theme-bulb-twinkle {
+  0%, 100% {
+    opacity: 0.72;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes theme-flame-soft {
+  0%, 100% {
+    transform: scaleY(0.95) rotate(-2deg);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scaleY(1.05) rotate(2deg);
+    opacity: 1;
+  }
+}
+
+.theme-ornament-sway {
+  transform-origin: top center;
+  animation: theme-ornament-sway 4.4s ease-in-out infinite;
+}
+
+.theme-bulb-twinkle {
+  animation: theme-bulb-twinkle 2.8s ease-in-out infinite;
+}
+
+.theme-flame-soft {
+  transform-origin: center bottom;
+  animation: theme-flame-soft 3.1s ease-in-out infinite;
+}
+
+.theme-card-hover-glow:hover {
+  box-shadow: 0 14px 34px -10px var(--editorial-glow), 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+}
+
+html.data-saver-active .theme-ornament-sway,
+html.data-saver-active .theme-bulb-twinkle,
+html.data-saver-active .theme-flame-soft {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-ornament-sway,
+  .theme-bulb-twinkle,
+  .theme-flame-soft {
+    animation: none !important;
+  }
+}

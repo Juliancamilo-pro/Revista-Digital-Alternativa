@@ -48,8 +48,34 @@
         "inLanguage": "es"
       }
     </script>
+    <script>
+      (function () {
+        try {
+          var root = document.documentElement;
+          var isDark = localStorage.getItem('revista_theme') === 'dark';
+          if (isDark) root.classList.add('dark');
+          var raw = localStorage.getItem('revista_active_theme_cache_v1');
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.id === 'string') {
+              root.setAttribute('data-theme', parsed.id);
+              var pal = isDark ? parsed.dark : parsed.light;
+              if (pal && typeof pal === 'object') {
+                var keys = ['primary', 'accent', 'paper', 'ink', 'surface', 'muted', 'glow', 'border'];
+                for (var i = 0; i < keys.length; i++) {
+                  var k = keys[i];
+                  if (typeof pal[k] === 'string') {
+                    root.style.setProperty('--editorial-' + k, pal[k]);
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-[#F8F6F1] text-[#111111] dark:bg-[#0D0D0D] dark:text-[#F4F1EA] antialiased selection:bg-[#B91C1C] selection:text-white">
+  <body class="bg-[var(--editorial-paper)] text-[var(--editorial-ink)] antialiased selection:bg-[var(--editorial-primary)] selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

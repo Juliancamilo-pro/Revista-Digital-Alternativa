@@ -249,9 +249,30 @@ service cloud.firestore {
         data.createdAt == request.time;
     }
 
+    function isValidThemeSettings(s) {
+      return s is map &&
+        s.keys().hasOnly(['intensity', 'speed', 'showOnMobile', 'calmInArticles', 'layers']) &&
+        (!('intensity' in s) || s.intensity in ['sutil', 'normal', 'festivo']) &&
+        (!('speed' in s) || s.speed in ['lenta', 'normal']) &&
+        isOptionalBool(s, 'showOnMobile') &&
+        isOptionalBool(s, 'calmInArticles') &&
+        (!('layers' in s) || (s.layers is map && s.layers.size() <= 12));
+    }
+
+    function isValidThemeBanner(b) {
+      return b is map &&
+        b.keys().hasOnly(['enabled', 'text', 'emoji', 'ctaLabel', 'ctaPath', 'countdownTarget']) &&
+        isOptionalBool(b, 'enabled') &&
+        isOptionalString(b, 'text', 180) &&
+        isOptionalString(b, 'emoji', 16) &&
+        isOptionalString(b, 'ctaLabel', 48) &&
+        isOptionalString(b, 'ctaPath', 160) &&
+        (!('countdownTarget' in b) || b.countdownTarget in ['none', 'christmas', 'new_year']);
+    }
+
     function isValidSiteConfig(data) {
       return data.keys().hasAll(['siteName', 'primaryColor', 'autoApproveCollaborators', 'autoPublishCollaborators', 'allowAnonymousComments', 'commentModerationMode', 'updatedAt']) &&
-        data.keys().hasOnly(['siteName', 'tagline', 'logoUrl', 'primaryColor', 'accentColor', 'autoApproveCollaborators', 'autoPublishCollaborators', 'allowAnonymousComments', 'commentModerationMode', 'blockedWords', 'contactEmail', 'aboutText', 'howWeWorkText', 'sourcesPolicyText', 'correctionsPolicyText', 'termsText', 'privacyText', 'authorLiabilityNotice', 'socialLinks', 'heroPostId', 'featuredPostIds', 'homepageSections', 'updatedAt']) &&
+        data.keys().hasOnly(['siteName', 'tagline', 'logoUrl', 'primaryColor', 'accentColor', 'autoApproveCollaborators', 'autoPublishCollaborators', 'allowAnonymousComments', 'commentModerationMode', 'blockedWords', 'contactEmail', 'aboutText', 'howWeWorkText', 'sourcesPolicyText', 'correctionsPolicyText', 'termsText', 'privacyText', 'authorLiabilityNotice', 'socialLinks', 'heroPostId', 'featuredPostIds', 'homepageSections', 'uiTexts', 'activeThemeId', 'themeMode', 'themeSettings', 'themeSchedule', 'customThemes', 'themeBanner', 'updatedAt']) &&
         data.siteName is string && data.siteName.size() >= 2 && data.siteName.size() <= 100 &&
         data.primaryColor is string && data.primaryColor.size() >= 4 && data.primaryColor.size() <= 20 &&
         data.autoApproveCollaborators is bool &&
@@ -270,6 +291,13 @@ service cloud.firestore {
         isOptionalString(data, 'privacyText', 15000) &&
         isOptionalString(data, 'authorLiabilityNotice', 3000) &&
         isOptionalString(data, 'heroPostId', 128) &&
+        isOptionalString(data, 'activeThemeId', 64) &&
+        (!('themeMode' in data) || data.themeMode in ['manual', 'auto', 'off']) &&
+        (!('themeSettings' in data) || isValidThemeSettings(data.themeSettings)) &&
+        (!('themeSchedule' in data) || (data.themeSchedule is list && data.themeSchedule.size() <= 30)) &&
+        (!('customThemes' in data) || (data.customThemes is list && data.customThemes.size() <= 10)) &&
+        (!('themeBanner' in data) || isValidThemeBanner(data.themeBanner)) &&
+        (!('uiTexts' in data) || (data.uiTexts is map && data.uiTexts.size() <= 24)) &&
         (!('blockedWords' in data) || (data.blockedWords is list && data.blockedWords.size() <= 100)) &&
         (!('featuredPostIds' in data) || (data.featuredPostIds is list && data.featuredPostIds.size() <= 12)) &&
         (!('homepageSections' in data) || (data.homepageSections is list && data.homepageSections.size() <= 20)) &&

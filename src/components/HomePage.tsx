@@ -13,12 +13,15 @@ import { motion } from 'motion/react';
 import { useDataSaver } from '../context/DataSaverContext';
 import { useMediaPlayer } from '../context/MediaPlayerContext';
 import { useSite } from '../context/SiteContext';
+import { useTheme } from '../context/ThemeContext';
 import { formatDateEs, getEditorialKindLabel, sanitizeExternalUrl } from '../lib/utils';
 import { HomepageSectionConfig, Post, PostType } from '../types/editorial';
 import { ArticleCard } from './ArticleCard';
 import { EditorialImage } from './EditorialImage';
 import { EditorialHomeSkeleton } from './EditorialSkeletons';
 import { TricolorHairline } from './TolimaAccents';
+import { ThemeCornerOrnaments, ThemeHeadingIcon } from './themes/ThemeOrnaments';
+import { ThemeSectionDivider } from './themes/ThemeSectionDivider';
 import { VerifiedBadge } from './VerifiedBadge';
 
 export const HomePage: React.FC = () => {
@@ -36,6 +39,7 @@ export const HomePage: React.FC = () => {
     navigate,
   } = useSite();
   const { isDataSaverActive } = useDataSaver();
+  const { showHoverEffects } = useTheme();
   const { currentTrack, isPlaying: globalAudioPlaying, playTrack } = useMediaPlayer();
 
   const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | PostType>('all');
@@ -284,7 +288,8 @@ export const HomePage: React.FC = () => {
           <section key={section.id} className="space-y-6 animate-fade-up">
             {/* Retícula 12 columnas: 8/12 apertura principal 16:9 + 4/12 columna lateral con las 3 notas siguientes */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-              <article className="lg:col-span-8 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm hover:shadow-xl transition-shadow group flex flex-col">
+              <article className={`relative lg:col-span-8 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden shadow-sm hover:shadow-xl transition-shadow group flex flex-col ${showHoverEffects ? 'theme-card-hover-glow' : ''}`}>
+                <ThemeCornerOrnaments variant="hero" />
                 <a
                   href={`/articulo/${heroPost.slug}`}
                   onClick={(e) => {
@@ -383,10 +388,11 @@ export const HomePage: React.FC = () => {
 
               {/* Columna lateral 4/12: 3 notas compactas + invitación editorial */}
               <aside className="lg:col-span-4 flex flex-col justify-between gap-5">
-                <div className="flex-1 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex flex-col shadow-sm">
+                <div className="flex-1 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 flex flex-col shadow-sm">
                   <div className="flex items-center justify-between border-b-2 border-[var(--editorial-primary)] pb-2.5 mb-2">
-                    <h2 className="font-display text-sm font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
-                      {dailyStripLabel}
+                    <h2 className="font-display text-sm font-extrabold uppercase tracking-widest text-[var(--editorial-primary)] flex items-center gap-1.5">
+                      <ThemeHeadingIcon />
+                      <span>{dailyStripLabel}</span>
                     </h2>
                     <span className="font-tabular text-[11px] text-neutral-500 uppercase">
                       {railPosts.length} notas
@@ -485,8 +491,9 @@ export const HomePage: React.FC = () => {
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
               <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
-                  {section.title}
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <ThemeHeadingIcon />
+                  <span>{section.title}</span>
                 </h2>
                 {section.subtitle && (
                   <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
@@ -521,7 +528,7 @@ export const HomePage: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
               {/* Lectura principal destacada (7/12) */}
               {topRead && (
-                <article className="lg:col-span-7 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm flex flex-col sm:flex-row">
+                <article className="lg:col-span-7 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden shadow-sm flex flex-col sm:flex-row">
                   <a
                     href={`/articulo/${topRead.slug}`}
                     onClick={(e) => {
@@ -576,12 +583,13 @@ export const HomePage: React.FC = () => {
               )}
 
               {/* Lista numerada compacta en columna lateral (5/12) */}
-              <aside className="lg:col-span-5 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 sm:p-6 shadow-sm flex flex-col">
+              <aside className="lg:col-span-5 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 sm:p-6 shadow-sm flex flex-col">
                 <div className="flex items-center justify-between border-b-2 border-[var(--editorial-primary)] pb-2.5 mb-2">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-[var(--editorial-primary)]" aria-hidden="true" />
-                    <h2 className="font-display text-lg font-extrabold uppercase tracking-tight">
-                      {section.title}
+                    <h2 className="font-display text-lg font-extrabold uppercase tracking-tight flex items-center gap-1.5">
+                      <span>{section.title}</span>
+                      <ThemeHeadingIcon />
                     </h2>
                   </div>
                   {section.subtitle && (
@@ -629,8 +637,9 @@ export const HomePage: React.FC = () => {
           <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
               <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
-                  {section.title}
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <ThemeHeadingIcon />
+                  <span>{section.title}</span>
                 </h2>
                 {section.subtitle && (
                   <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
@@ -664,8 +673,9 @@ export const HomePage: React.FC = () => {
           <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
               <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
-                  {section.title}
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <ThemeHeadingIcon />
+                  <span>{section.title}</span>
                 </h2>
                 {section.subtitle && (
                   <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
@@ -758,7 +768,7 @@ export const HomePage: React.FC = () => {
                     <article
                       key={post.id}
                       onClick={() => navigate(`/articulo/${post.slug}`)}
-                      className="group cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden grid grid-cols-12 shadow-sm hover:shadow-md transition-shadow"
+                      className="group cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden grid grid-cols-12 shadow-sm hover:shadow-md transition-shadow"
                     >
                       <div className="col-span-5 aspect-[4/3] bg-neutral-900 overflow-hidden">
                         <EditorialImage
@@ -855,7 +865,7 @@ export const HomePage: React.FC = () => {
             </div>
 
             {/* Lista compacta con reproductor integrado */}
-            <div className="rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] divide-y divide-neutral-200 dark:divide-neutral-800 shadow-sm">
+            <div className="rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] divide-y divide-neutral-200 dark:divide-neutral-800 shadow-sm">
               {audioPosts.map((post) => {
                 const mediaSrc = sanitizeExternalUrl(post.mediaUrl || '');
                 const isActiveTrack = currentTrack?.postId === post.id;
@@ -984,7 +994,7 @@ export const HomePage: React.FC = () => {
                 <article
                   key={item.id}
                   onClick={() => navigate(`/colaborador/${item.id}`)}
-                  className="w-[260px] sm:w-[280px] shrink-0 snap-start cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex items-start gap-3.5 hover:shadow-md transition-shadow"
+                  className="w-[260px] sm:w-[280px] shrink-0 snap-start cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 flex items-start gap-3.5 hover:shadow-md transition-shadow"
                 >
                   <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-900 text-white shrink-0 flex items-center justify-center font-display text-lg font-extrabold uppercase">
                     {item.avatarUrl ? (
@@ -1035,8 +1045,9 @@ export const HomePage: React.FC = () => {
           >
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
-                  {section.title}
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <ThemeHeadingIcon />
+                  <span>{section.title}</span>
                 </h2>
                 {section.subtitle && (
                   <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
@@ -1134,17 +1145,18 @@ export const HomePage: React.FC = () => {
 
   return (
     <main className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-12 sm:space-y-14">
-      {orderedSections.map((sec) => {
+      {orderedSections.map((sec, idx) => {
         if (sec.type === 'categories_feed') {
           return (
             <React.Fragment key={sec.id}>
+              {idx > 0 && <ThemeSectionDivider />}
               {/* Vitrina regional: Tolima, Colombia, Cultura, Opinión y Multimedia */}
               <motion.section
                 initial={isDataSaverActive ? false : { opacity: 0, y: 10 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.1 }}
                 transition={{ duration: 0.28 }}
-                className="tolima-weave-bg rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm"
+                className="tolima-weave-bg rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden shadow-sm"
               >
                 <TricolorHairline />
                 <div className="p-6 sm:p-8 space-y-6">
@@ -1153,8 +1165,9 @@ export const HomePage: React.FC = () => {
                       <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                         Identidad regional · Hecho en el Tolima, para Colombia
                       </p>
-                      <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
-                        Tolima, Capital Musical de Colombia
+                      <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                        <ThemeHeadingIcon />
+                        <span>Tolima, Capital Musical de Colombia</span>
                       </h2>
                       <p className="font-editorial text-sm sm:text-base text-neutral-700 dark:text-neutral-300 leading-relaxed">
                         Territorio, cultura, memoria sonora, opinión pública y formatos multimedia desde el corazón andino del país.
@@ -1213,11 +1226,17 @@ export const HomePage: React.FC = () => {
                 </div>
               </motion.section>
 
+              <ThemeSectionDivider />
               {renderSection(sec)}
             </React.Fragment>
           );
         }
-        return renderSection(sec);
+        return (
+          <React.Fragment key={sec.id}>
+            {idx > 0 && idx % 2 === 0 && <ThemeSectionDivider />}
+            {renderSection(sec)}
+          </React.Fragment>
+        );
       })}
     </main>
   );

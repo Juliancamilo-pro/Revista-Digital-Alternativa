@@ -370,13 +370,16 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ initialPost, onSaved, 
     });
   };
 
+  const saveRevisionRef = React.useRef(saveRevisionSnapshot);
+  saveRevisionRef.current = saveRevisionSnapshot;
+
   // Automatic version snapshot every 3 minutes while actively editing
   useEffect(() => {
     const interval = setInterval(() => {
-      saveRevisionSnapshot('Respaldo automático');
+      saveRevisionRef.current('Respaldo automático');
     }, 180000);
     return () => clearInterval(interval);
-  });
+  }, []);
 
   const handleDuplicateInEditor = () => {
     saveRevisionSnapshot('Antes de duplicar');

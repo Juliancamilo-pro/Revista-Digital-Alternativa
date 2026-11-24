@@ -8,6 +8,17 @@ import {
   stripUndefinedDeep,
   validatePostDocumentAgainstRules,
 } from './src/lib/postValidation.ts';
+import {
+  CLASICO_THEME,
+  DEFAULT_THEME_SCHEDULE,
+  PRESET_THEMES,
+  isMonthDayInRange,
+  resolveActiveTheme,
+  sanitizeCustomThemes,
+  sanitizeThemeBanner,
+  sanitizeThemeSchedule,
+  sanitizeThemeSettings,
+} from './src/themes/index.ts';
 
 function fakeTimestamp(ms = Date.now()) {
   const date = new Date(ms);
@@ -492,3 +503,120 @@ describe('Posts Create/Edit Validation by Role & Legacy Seed Migration (Phase 1)
     );
   });
 });
+
+describe('Seasonal Themes, Schedule Resolution & SiteConfig Rules Sync', () => {
+  it('syncs new theme fields across firestore.rules, firebase-blueprint.json, and maintains admin-only /site_config/main', () => {
+    const rules = fs.readFileSync('firestore.rules', 'utf8');
+    const blueprint = JSON.parse(fs.readFileSync('firebase-blueprint.json', 'utf8'));
+    const siteConfigProps = blueprint.entities.SiteConfig.properties;
+
+    const requiredThemeKeys = [
+      'uiTexts',
+      'activeThemeId',
+      'themeMode',
+      'themeSettings',
+      'themeSchedule',
+      'customThemes',
+      'themeBanner',
+    ];
+    for (const key of requiredThemeKeys) {
+      assert.ok(key in siteConfigProps, `Missing ${key} in firebase-blueprint.json`);
+      assert.ok(rules.includes(`'${key}'`), `Missing ${key} in firestore.rules`);
+    }
+
+    assert.match(rules, /function isValidThemeSettings\(s\)/);
+    assert.match(rules, /function isValidThemeBanner\(b\)/);
+    assert.match(rules, /match \/site_config\/main \{\s*allow get: if true;\s*allow list: if false;\s*allow create: if isAdmin\(\) && isValidSiteConfig\(incoming\(\)\);\s*allow update: if isAdmin\(\) && isValidSiteConfig\(incoming\(\)\);/);
+  });
+
+  it('includes Clásico + 12 seasonal themes and keeps Clásico and Duelo/Luto animation-free', () => {
+    assert.equal(PRESET_THEMES.length, 13);
+    assert.equal(CLASICO_THEME.palette.light.primary, '#B91C1C');
+    assert.equal(CLASICO_THEME.palette.light.paper, '#F8F6F1');
+    assert.equal(CLASICO_THEME.palette.dark.paper, '#0D0D0D');
+    assert.equal(CLASICO_THEME.disableAnimations, true);
+
+    const mourning = PRESET_THEMES.find((t) => t.id === 'duelo_luto');
+    assert.ok(mourning);
+    assert.equal(mourning.disableAnimations, true);
+    assert.equal(mourning.particleType, 'none');
+  });
+
+  it('resolves manual, off, and year-wrapping auto schedules accurately in Colombia time', () => {
+    assert.equal(isMonthDayInRange('12-20', '12-01', '01-06'), true);
+    assert.equal(isMonthDayInRange('01-04', '12-01', '01-06'), true);
+    assert.equal(isMonthDayInRange('01-10', '12-01', '01-06'), false);
+
+    // Off forces Clásico even if activeThemeId is Navidad
+    const offRes = resolveActiveTheme({
+      themeMode: 'off',
+      activeThemeId: 'navidad_clasica',
+    });
+    assert.equal(offRes.theme.id, 'clasico');
+    assert.equal(offRes.source, 'off');
+
+    // Auto resolves Día de las Velitas (Dec 7) with higher priority than Navidad clásica (Dec 1 - Jan 6)
+    const velitasDate = new Date('2026-12-07T18:00:00Z');
+    const autoVelitas = resolveActiveTheme(
+      {
+        themeMode: 'auto',
+        themeSchedule: DEFAULT_THEME_SCHEDULE,
+      },
+      null,
+      velitasDate
+    );
+    assert.equal(autoVelitas.theme.id, 'dia_velitas');
+
+    // Auto resolves Festival del Tolima (June 24)
+    const tolimaDate = new Date('2026-06-24T15:00:00Z');
+    const autoTolima = resolveActiveTheme(
+      {
+        themeMode: 'auto',
+        themeSchedule: DEFAULT_THEME_SCHEDULE,
+      },
+      null,
+      tolimaDate
+    );
+    assert.equal(autoTolima.theme.id, 'festival_tolima');
+  });
+
+  it('enforces list caps and plain-text / URL path sanitization on theme config helpers', () => {
+    const manyCustoms = Array.from({ length: 15 }, (_, idx) => ({
+      id: `custom_${idx}`,
+      name: `<script>alert(1)</script>Tema ${idx}`,
+      palette: {
+        light: { primary: 'invalid-color', accent: '#123456', paper: '#ffffff', ink: '#111111', surface: '#ffffff', muted: '#555555', glow: 'rgba(0,0,0,0.1)', border: 'rgba(0,0,0,0.1)' },
+        dark: { primary: '#b91c1c', accent: '#991b1b', paper: '#0d0d0d', ink: '#f4f1ea', surface: '#141414', muted: '#a3a3a3', glow: 'rgba(0,0,0,0.2)', border: 'rgba(255,255,255,0.1)' },
+      },
+    }));
+    const sanitizedCustoms = sanitizeCustomThemes(manyCustoms);
+    assert.equal(sanitizedCustoms.length, 10);
+    assert.equal(sanitizedCustoms[0].name.includes('<script>'), false);
+    assert.equal(sanitizedCustoms[0].palette.light.primary, CLASICO_THEME.palette.light.primary);
+
+    const manySchedules = Array.from({ length: 40 }, (_, idx) => ({
+      id: `s_${idx}`,
+      themeId: 'clasico',
+      startMonthDay: '12-01',
+      endMonthDay: '12-31',
+      enabled: true,
+    }));
+    assert.equal(sanitizeThemeSchedule(manySchedules).length, 30);
+
+    const banner = sanitizeThemeBanner({
+      enabled: true,
+      text: '<b>Felices</b> fiestas',
+      ctaPath: 'javascript:alert(1)',
+      countdownTarget: 'christmas',
+    });
+    assert.equal(banner.text, 'Felices fiestas');
+    assert.equal(banner.ctaPath, '');
+    assert.equal(banner.countdownTarget, 'christmas');
+
+    const settings = sanitizeThemeSettings({ intensity: 'festivo', calmInArticles: false });
+    assert.equal(settings.intensity, 'festivo');
+    assert.equal(settings.calmInArticles, false);
+    assert.equal(settings.layers.particles, true);
+  });
+});
+

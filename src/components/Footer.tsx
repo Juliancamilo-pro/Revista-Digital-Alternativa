@@ -11,6 +11,7 @@ import {
   requestArticleAlertsPermission,
 } from '../lib/notifications';
 import { downloadTextFile, generateId, generateRssXml, generateSitemapXml, sanitizeExternalUrl } from '../lib/utils';
+import { ThemeFooterBorder } from './themes/ThemeFooterBorder';
 
 export const Footer: React.FC = () => {
   const { siteConfig, categories, publishedPosts, readingMode, navigate } = useSite();
@@ -98,7 +99,8 @@ export const Footer: React.FC = () => {
     'Hecho en el Tolima, para Colombia. Periodismo independiente sin filtros corporativos.';
 
   return (
-    <footer className="mt-20 border-t-4 border-[var(--editorial-primary)] bg-[#111111] text-[#F4F1EA] shadow-2xl">
+    <footer className="mt-20 border-t-4 border-[var(--editorial-primary)] bg-[#111111] text-[#F4F1EA] shadow-2xl relative">
+      <ThemeFooterBorder />
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 pb-12 border-b border-neutral-800">
           {/* Brand & Manifesto */}

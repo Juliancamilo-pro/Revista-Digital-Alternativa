@@ -1,6 +1,16 @@
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import { logAdminActivity } from './activityLog';
 import { db } from './firebase';
+import {
+  DEFAULT_THEME_BANNER,
+  DEFAULT_THEME_SCHEDULE,
+  DEFAULT_THEME_SETTINGS,
+  sanitizeCustomThemes,
+  sanitizeThemeBanner,
+  sanitizeThemeMode,
+  sanitizeThemeSchedule,
+  sanitizeThemeSettings,
+} from '../themes/registry';
 import { AdminPublicIdentity, Category, HomepageSectionConfig, SiteConfig, SiteUiTexts } from '../types/editorial';
 
 export function sanitizePlainUiText(val: unknown, maxLen: number): string {
@@ -144,6 +154,12 @@ export const DEFAULT_SITE_CONFIG: Omit<SiteConfig, 'updatedAt'> = {
   featuredPostIds: [],
   homepageSections: DEFAULT_HOMEPAGE_SECTIONS,
   uiTexts: DEFAULT_SITE_UI_TEXTS,
+  activeThemeId: 'clasico',
+  themeMode: 'manual',
+  themeSettings: DEFAULT_THEME_SETTINGS,
+  themeSchedule: DEFAULT_THEME_SCHEDULE,
+  customThemes: [],
+  themeBanner: DEFAULT_THEME_BANNER,
 };
 
 export const DEFAULT_CATEGORIES: Array<Omit<Category, 'createdAt' | 'updatedAt'>> = [
@@ -266,6 +282,12 @@ function buildCleanSiteConfigPayload(source: Partial<SiteConfig>): Record<string
     featuredPostIds: Array.isArray(source.featuredPostIds) ? source.featuredPostIds.slice(0, 12) : [],
     homepageSections: sanitizeHomepageSections(source.homepageSections),
     uiTexts: sanitizeSiteUiTexts(source.uiTexts),
+    activeThemeId: sanitizePlainUiText(source.activeThemeId, 64).replace(/[^a-zA-Z0-9_-]/g, '') || 'clasico',
+    themeMode: sanitizeThemeMode(source.themeMode),
+    themeSettings: sanitizeThemeSettings(source.themeSettings),
+    themeSchedule: sanitizeThemeSchedule(source.themeSchedule),
+    customThemes: sanitizeCustomThemes(source.customThemes),
+    themeBanner: sanitizeThemeBanner(source.themeBanner),
     updatedAt: serverTimestamp(),
   };
 }

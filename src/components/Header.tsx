@@ -21,6 +21,8 @@ import { parseMediaUrlMeta, sanitizeExternalUrl } from '../lib/utils';
 import { DataSaverMode } from '../types/editorial';
 import { PWAInstallButton } from './PWAInstallButton';
 import { TricolorHairline } from './TolimaAccents';
+import { ThemeGarland } from './themes/ThemeGarland';
+import { ThemeLogoAccent } from './themes/ThemeOrnaments';
 
 export const Header: React.FC = () => {
   const {
@@ -105,11 +107,11 @@ export const Header: React.FC = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-neutral-300/80 dark:border-neutral-800/90 bg-[#F8F6F1]/95 dark:bg-[#0D0D0D]/95 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-neutral-300/80 dark:border-neutral-800/90 bg-[var(--editorial-paper)]/95 text-[var(--editorial-ink)] backdrop-blur-md transition-colors duration-300">
       <TricolorHairline />
 
       {/* Cintillo editorial de cabecera: fecha en español y edición del día */}
-      <div className="hidden sm:block border-b border-neutral-200/90 dark:border-neutral-800/80 bg-[#F1EDE4]/80 dark:bg-[#131313]/90">
+      <div className="hidden sm:block border-b border-neutral-200/80 dark:border-neutral-800/80 bg-black/[0.03] dark:bg-white/[0.03]">
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 h-7 flex items-center justify-between gap-4 text-[11px] font-display tracking-wider uppercase text-neutral-700 dark:text-neutral-300">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="inline-flex items-center gap-1.5 font-bold text-[var(--editorial-primary)] shrink-0">
@@ -135,7 +137,7 @@ export const Header: React.FC = () => {
                 e.preventDefault();
                 handleNav('/unete');
               }}
-              className="font-bold text-[#111111] dark:text-[#F4F1EA] hover:text-[var(--editorial-primary)] transition-colors"
+              className="font-bold text-[var(--editorial-ink)] hover:text-[var(--editorial-primary)] transition-colors"
             >
               {joinCtaLabel}
             </a>
@@ -154,16 +156,19 @@ export const Header: React.FC = () => {
           }}
           className="flex items-center gap-2 sm:gap-3 min-w-0 sm:shrink-0 group focus-visible:outline-2 focus-visible:outline-[var(--editorial-primary)]"
         >
-          <img
-            src={logoSrc}
-            alt={siteConfig.siteName}
-            width={36}
-            height={36}
-            referrerPolicy="no-referrer"
-            className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg object-contain bg-white p-0.5 border border-neutral-300 dark:border-neutral-700 shadow-xs"
-          />
+          <span className="relative inline-flex shrink-0">
+            <ThemeLogoAccent />
+            <img
+              src={logoSrc}
+              alt={siteConfig.siteName}
+              width={36}
+              height={36}
+              referrerPolicy="no-referrer"
+              className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg object-contain bg-white p-0.5 border border-neutral-300 dark:border-neutral-700 shadow-xs"
+            />
+          </span>
           <div className="min-w-0">
-            <span className="block font-display text-[14px] sm:text-xl font-extrabold uppercase tracking-tight leading-none text-[#111111] dark:text-[#F4F1EA] group-hover:text-[var(--editorial-primary)] transition-colors truncate">
+            <span className="block font-display text-[14px] sm:text-xl font-extrabold uppercase tracking-tight leading-none text-[var(--editorial-ink)] group-hover:text-[var(--editorial-primary)] transition-colors truncate">
               {siteConfig.siteName}
             </span>
             <span className="sm:hidden block text-[10px] font-display font-semibold uppercase tracking-wider text-neutral-600 dark:text-neutral-400 mt-0.5 truncate">
@@ -223,7 +228,7 @@ export const Header: React.FC = () => {
             </button>
 
             {sectionsOpen && (
-              <div className="absolute left-0 top-full mt-2 w-64 rounded-2xl bg-[#F8F6F1] dark:bg-[#161616] border border-neutral-300 dark:border-neutral-800 shadow-2xl p-3 grid grid-cols-1 gap-1 z-50">
+              <div className="absolute left-0 top-full mt-2 w-64 rounded-2xl bg-[var(--editorial-paper)] dark:bg-[#161616] border border-neutral-300 dark:border-neutral-800 shadow-2xl p-3 grid grid-cols-1 gap-1 z-50">
                 {categories.map((cat) => (
                   <a
                     key={cat.id}
@@ -300,7 +305,7 @@ export const Header: React.FC = () => {
             </button>
 
             {saverOpen && (
-              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-[#F8F6F1] dark:bg-[#161616] border border-neutral-300 dark:border-neutral-800 shadow-2xl p-3 z-50 space-y-2">
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-[var(--editorial-paper)] dark:bg-[#161616] border border-neutral-300 dark:border-neutral-800 shadow-2xl p-3 z-50 space-y-2">
                 <div className="flex items-center justify-between px-1">
                   <span className="font-display text-xs font-extrabold uppercase tracking-wider">
                     Modo ahorro de datos
@@ -433,7 +438,7 @@ export const Header: React.FC = () => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-neutral-200 dark:border-neutral-800 bg-[#F8F6F1] dark:bg-[#111111] px-4 py-4 max-h-[82vh] overflow-y-auto space-y-4">
+        <div className="lg:hidden border-t border-neutral-200 dark:border-neutral-800 bg-[var(--editorial-paper)] px-4 py-4 max-h-[82vh] overflow-y-auto space-y-4">
           <div className="flex items-center justify-between text-[11px] font-display uppercase tracking-wider text-neutral-600 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-800 pb-2">
             <span>{formattedTodayEs}</span>
             <span className="font-bold text-[var(--editorial-primary)]">{editionNumber}</span>
@@ -565,6 +570,7 @@ export const Header: React.FC = () => {
           </div>
         </div>
       )}
+      <ThemeGarland />
     </header>
   );
 };

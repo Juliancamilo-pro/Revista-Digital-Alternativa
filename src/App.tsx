@@ -8,10 +8,14 @@ import { Footer } from './components/Footer';
 import { Header } from './components/Header';
 import { MiniAudioPlayer } from './components/MiniAudioPlayer';
 import { OfflineIndicator } from './components/PWAInstallButton';
+import { ThemeGreetingBanner } from './components/themes/ThemeGreetingBanner';
+import { ThemeParticleCanvas } from './components/themes/ThemeParticleCanvas';
+import { ThemePreviewFloatingBar } from './components/themes/ThemePreviewFloatingBar';
 import { AuthProvider } from './context/AuthContext';
 import { DataSaverProvider, useDataSaver } from './context/DataSaverContext';
 import { MediaPlayerProvider, useMediaPlayer } from './context/MediaPlayerContext';
 import { SiteProvider, useSite } from './context/SiteContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { usePWAUpdate } from './hooks/usePWAUpdate';
 
 const HomePage = lazy(() => import('./components/HomePage').then((m) => ({ default: m.HomePage })));
@@ -95,21 +99,24 @@ const EditorialRouter: React.FC = () => {
   }
 
   return (
-    <div className={`min-h-screen flex flex-col bg-[#F8F6F1] text-[#111111] dark:bg-[#0D0D0D] dark:text-[#F4F1EA] ${currentTrack ? 'pb-20' : ''}`}>
+    <div className={`min-h-screen flex flex-col bg-[var(--editorial-paper)] text-[var(--editorial-ink)] transition-colors duration-300 ${currentTrack ? 'pb-20' : ''}`}>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-[var(--editorial-primary)] focus:text-white focus:font-display focus:text-xs focus:font-bold focus:uppercase"
       >
         Saltar al contenido principal
       </a>
+      <ThemeParticleCanvas />
       <Header />
-      <div id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+      <ThemeGreetingBanner />
+      <div id="main-content" tabIndex={-1} className="flex-1 focus:outline-none relative z-10">
         <Suspense fallback={<EditorialPageSkeleton />}>{view}</Suspense>
       </div>
       <Footer />
       <MiniAudioPlayer />
       <AuthModal />
       <OfflineIndicator />
+      <ThemePreviewFloatingBar />
 
       {needsRefresh && (
         <div
@@ -172,9 +179,11 @@ export default function App() {
         <DataSaverProvider>
           <AuthProvider>
             <SiteProvider>
-              <MediaPlayerProvider>
-                <EditorialRouter />
-              </MediaPlayerProvider>
+              <ThemeProvider>
+                <MediaPlayerProvider>
+                  <EditorialRouter />
+                </MediaPlayerProvider>
+              </ThemeProvider>
             </SiteProvider>
           </AuthProvider>
         </DataSaverProvider>

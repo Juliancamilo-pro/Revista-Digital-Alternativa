@@ -7,6 +7,7 @@
 4. **Propiedad estricta en publicaciones y comentarios**: Un colaborador activo solo puede crear, editar o eliminar documentos donde `authorId == request.auth.uid`, nunca los de otros autores; no puede asignar `featured`, `breaking`, `authorIdentityType: 'owner' | 'magazine'` ni moderar comentarios ajenos o configuración global. Tampoco puede marcar `authorIsAdmin: true` en comentarios ni falsificar `authorVerified: true`.
 5. **Auditoría administrativa inmutable**: `/admin_activity_logs/{logId}` solo puede ser creado y leído por `isAdmin()`, nunca editado ni borrado.
 6. **Integridad temporal y límites de tamaño**: Todas las escrituras validan tipos, longitudes máximas (`size() <= max`) y marcas de tiempo del servidor (`request.time`) en campos `createdAt`/`updatedAt`.
+7. **Control exclusivo de temas y decoración estacional**: Los campos de tema en `/site_config/main` (`activeThemeId`, `themeMode`, `themeSettings`, `themeSchedule`, `customThemes`, `themeBanner`, `uiTexts`) son legibles públicamente pero solo modificables por `isAdmin()`, con límites estrictos (`customThemes <= 10`, `themeSchedule <= 30`, textos planos sanitizados y enum `themeMode in ['manual', 'auto', 'off']`).
 
 ## 2. Vectores de Ataque Bloqueados ("Dirty Dozen+")
 1. **Shadow Field Injection en `/users/{uid}`**: Enviar `{ role: "admin", isSuperAdmin: true }` al registrarse -> `PERMISSION_DENIED`.
@@ -23,3 +24,5 @@
 12. **Alteración del registro de auditoría**: Intentar modificar, borrar o falsificar `actorUid` en `/admin_activity_logs/{logId}` -> `PERMISSION_DENIED`.
 13. **Falsificación de insignia administrativa en comentarios**: Usuario no administrador intenta crear comentario con `authorIsAdmin: true` -> `PERMISSION_DENIED`.
 14. **Escalada en directorio público**: Colaborador intenta alterar `directoryHidden`, `directoryFeatured` o `directoryOrder` en `/collaborators_public/{uid}` o editar `/admin_identities/{id}` -> `PERMISSION_DENIED`.
+15. **Mutación no autorizada de temas o banner global**: Un lector o colaborador intenta escribir en `/site_config/main` (`activeThemeId`, `themeMode`, `themeBanner`, `customThemes`) -> `PERMISSION_DENIED`.
+16. **Desbordamiento o inyección de estructura en configuración de temas**: Enviar `customThemes.size() > 10`, `themeSchedule.size() > 30`, `themeMode` inválido o propiedades desconocidas fuera de `hasOnly` en `/site_config/main` -> `PERMISSION_DENIED`.

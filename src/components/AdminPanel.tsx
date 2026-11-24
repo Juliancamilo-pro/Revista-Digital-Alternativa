@@ -29,6 +29,7 @@ import {
   Lock,
   Mail,
   MessageSquare,
+  Palette,
   Pin,
   Plus,
   RefreshCw,
@@ -83,9 +84,18 @@ import {
   SiteConfig,
   UserAccount,
 } from '../types/editorial';
+import { sanitizeSiteUiTexts } from '../lib/seedData';
+import {
+  sanitizeCustomThemes,
+  sanitizeThemeBanner,
+  sanitizeThemeMode,
+  sanitizeThemeSchedule,
+  sanitizeThemeSettings,
+} from '../themes/registry';
 import { EditorialImage } from './EditorialImage';
 import { VerifiedBadge } from './VerifiedBadge';
 import { StatsTab } from './admin/StatsTab';
+import { ThemesTab } from './admin/ThemesTab';
 
 const BlockEditor = lazy(() => import('./BlockEditor').then((m) => ({ default: m.BlockEditor })));
 const GoogleCalendarPanel = lazy(() =>
@@ -104,6 +114,7 @@ type AdminTab =
   | 'stats'
   | 'inbox'
   | 'activity'
+  | 'themes'
   | 'settings';
 
 export const AdminPanel: React.FC = () => {
@@ -549,6 +560,13 @@ export const AdminPanel: React.FC = () => {
         heroPostId: (next.heroPostId || '').slice(0, 128),
         featuredPostIds: (next.featuredPostIds || []).slice(0, 12),
         homepageSections: (next.homepageSections || []).slice(0, 20),
+        uiTexts: sanitizeSiteUiTexts(next.uiTexts),
+        activeThemeId: (next.activeThemeId || 'clasico').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'clasico',
+        themeMode: sanitizeThemeMode(next.themeMode),
+        themeSettings: sanitizeThemeSettings(next.themeSettings),
+        themeSchedule: sanitizeThemeSchedule(next.themeSchedule),
+        customThemes: sanitizeCustomThemes(next.customThemes),
+        themeBanner: sanitizeThemeBanner(next.themeBanner),
         updatedAt: serverTimestamp(),
       });
       if (logAction) {
@@ -734,6 +752,7 @@ export const AdminPanel: React.FC = () => {
             ['stats', 'Estadísticas', BarChart3],
             ['inbox', `Boletín y Denuncias${pendingTicketsCount > 0 ? ` (${pendingTicketsCount})` : ''}`, Mail],
             ['activity', `Actividad (${activityLogs.length})`, History],
+            ['themes', 'Temas y decoración', Palette],
             ['settings', 'Configuración', Settings],
           ] as const
         ).map(([key, label, Icon]) => (
@@ -2647,7 +2666,16 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 11: GENERAL SETTINGS */}
+      {/* TAB 11: THEMES & DECORATION */}
+      {tab === 'themes' && (
+        <ThemesTab
+          cfgDraft={cfgDraft}
+          setCfgDraft={setCfgDraft}
+          onSaveConfig={saveSiteConfig}
+        />
+      )}
+
+      {/* TAB 12: GENERAL SETTINGS */}
       {tab === 'settings' && (
         <form
           onSubmit={(e) => {

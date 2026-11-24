@@ -773,7 +773,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           <header
             className={
               headerStyle === 'editorial'
-                ? 'rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 sm:p-9 shadow-sm'
+                ? 'rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] p-6 sm:p-9 shadow-sm'
                 : headerStyle === 'minimal'
                 ? 'text-center max-w-3xl mx-auto'
                 : ''
@@ -959,7 +959,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         </div>
 
         {/* Browser Speech Synthesis Audio Reader Bar */}
-        <div className="mt-4 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="mt-4 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Volume2 className="w-4 h-4 text-[var(--editorial-primary)] shrink-0" aria-hidden="true" />
             <span className="font-display text-xs font-bold uppercase tracking-wider">

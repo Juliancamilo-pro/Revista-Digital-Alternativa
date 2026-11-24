@@ -73,6 +73,180 @@ export interface SiteUiTexts {
   footerCopyrightNote?: string;
 }
 
+export type ThemeMode = 'manual' | 'auto' | 'off';
+export type ThemeIntensity = 'sutil' | 'normal' | 'festivo';
+export type ThemeSpeed = 'lenta' | 'normal';
+export type ThemeCategory =
+  | 'editorial'
+  | 'navidad'
+  | 'patria'
+  | 'cultural'
+  | 'conmemoracion'
+  | 'temporada'
+  | 'personalizado';
+
+export type ThemeParticleType =
+  | 'none'
+  | 'snow'
+  | 'heavy_snow'
+  | 'confetti'
+  | 'sparks'
+  | 'stars'
+  | 'fireworks_confetti'
+  | 'bats'
+  | 'hearts'
+  | 'butterflies_petals'
+  | 'petals'
+  | 'ink_sparks';
+
+export type ThemeGarlandStyle =
+  | 'none'
+  | 'lights'
+  | 'lanterns'
+  | 'stars'
+  | 'sparkles'
+  | 'bunting'
+  | 'papel_picado'
+  | 'floral'
+  | 'mourning';
+
+export type ThemeLogoAccentStyle =
+  | 'none'
+  | 'santa_hat'
+  | 'candle'
+  | 'star'
+  | 'laurel'
+  | 'flower'
+  | 'ribbon_bow'
+  | 'hat_tolima'
+  | 'quill'
+  | 'snowflake'
+  | 'mourning_ribbon';
+
+export type ThemeFooterStyle =
+  | 'none'
+  | 'pines'
+  | 'candles'
+  | 'skyline'
+  | 'tolima_peaks'
+  | 'confetti_wave'
+  | 'floral_vine'
+  | 'lace'
+  | 'mourning_bar';
+
+export type ThemeOrnamentId =
+  | 'bell'
+  | 'bauble'
+  | 'star'
+  | 'bethlehem_star'
+  | 'pine'
+  | 'gift'
+  | 'holly'
+  | 'candle'
+  | 'lantern'
+  | 'candy_cane'
+  | 'snowflake'
+  | 'heart'
+  | 'balloon'
+  | 'pumpkin'
+  | 'bat'
+  | 'ghost'
+  | 'web'
+  | 'flower'
+  | 'butterfly'
+  | 'sombrero'
+  | 'tiple'
+  | 'papel_picado'
+  | 'quill'
+  | 'typewriter'
+  | 'inkwell'
+  | 'pennant'
+  | 'tricolor_ribbon'
+  | 'firework'
+  | 'champagne'
+  | 'mourning_ribbon'
+  | 'frost'
+  | 'ribbon';
+
+export interface ThemeColorTokens {
+  primary: string;
+  accent: string;
+  paper: string;
+  ink: string;
+  surface: string;
+  muted: string;
+  glow: string;
+  border: string;
+}
+
+export interface ThemePalettePair {
+  light: ThemeColorTokens;
+  dark: ThemeColorTokens;
+}
+
+export interface EditorialThemeDefinition {
+  id: string;
+  name: string;
+  emoji: string;
+  category: ThemeCategory;
+  description: string;
+  defaultStartMonthDay?: string;
+  defaultEndMonthDay?: string;
+  palette: ThemePalettePair;
+  particleType: ThemeParticleType;
+  ornaments: ThemeOrnamentId[];
+  garlandStyle: ThemeGarlandStyle;
+  cornerOrnament: ThemeOrnamentId | 'none';
+  dividerOrnament: ThemeOrnamentId | 'none';
+  headingOrnament: ThemeOrnamentId | 'none';
+  logoAccent: ThemeLogoAccentStyle;
+  footerStyle: ThemeFooterStyle;
+  defaultBannerText?: string;
+  defaultBannerEmoji?: string;
+  hoverGlow?: boolean;
+  disableAnimations?: boolean;
+  isCustom?: boolean;
+  basedOnThemeId?: string;
+}
+
+export interface ThemeLayerSettings {
+  particles: boolean;
+  garland: boolean;
+  corners: boolean;
+  dividers: boolean;
+  banner: boolean;
+  footer: boolean;
+  logo: boolean;
+  hoverEffects: boolean;
+}
+
+export interface ThemeSettings {
+  intensity: ThemeIntensity;
+  speed: ThemeSpeed;
+  showOnMobile: boolean;
+  calmInArticles: boolean;
+  layers: ThemeLayerSettings;
+}
+
+export interface ThemeScheduleEntry {
+  id: string;
+  themeId: string;
+  label?: string;
+  startMonthDay: string;
+  endMonthDay: string;
+  enabled: boolean;
+  priority?: number;
+}
+
+export interface ThemeBannerConfig {
+  enabled: boolean;
+  text: string;
+  emoji?: string;
+  ctaLabel?: string;
+  ctaPath?: string;
+  countdownTarget?: 'none' | 'christmas' | 'new_year';
+}
+
 export interface SiteConfig {
   siteName: string;
   tagline: string;
@@ -103,6 +277,12 @@ export interface SiteConfig {
   featuredPostIds: string[];
   homepageSections: HomepageSectionConfig[];
   uiTexts?: SiteUiTexts;
+  activeThemeId?: string;
+  themeMode?: ThemeMode;
+  themeSettings?: ThemeSettings;
+  themeSchedule?: ThemeScheduleEntry[];
+  customThemes?: EditorialThemeDefinition[];
+  themeBanner?: ThemeBannerConfig;
   updatedAt?: unknown;
 }
 

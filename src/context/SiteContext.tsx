@@ -5,6 +5,13 @@ import { maybeNotifyNewPost } from '../lib/notifications';
 import { loadFeedCache, saveFeedCache } from '../lib/offlineCache';
 import { isTimestampLike } from '../lib/postValidation';
 import { DEFAULT_ADMIN_IDENTITIES, DEFAULT_CATEGORIES, DEFAULT_HOMEPAGE_SECTIONS, DEFAULT_SITE_CONFIG, DEFAULT_SITE_UI_TEXTS, sanitizeSiteUiTexts } from '../lib/seedData';
+import {
+  sanitizeCustomThemes,
+  sanitizeThemeBanner,
+  sanitizeThemeMode,
+  sanitizeThemeSchedule,
+  sanitizeThemeSettings,
+} from '../themes/registry';
 import { toDate, updateDynamicAppIcons } from '../lib/utils';
 import { AdminPublicIdentity, Category, CollaboratorPublic, HomepageSectionConfig, Post, SeriesItem, SiteConfig } from '../types/editorial';
 import { useAuth } from './AuthContext';
@@ -128,18 +135,23 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [isDark]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.style.setProperty('--editorial-primary', siteConfig.primaryColor || '#B91C1C');
-    root.style.setProperty('--editorial-accent', siteConfig.accentColor || '#991B1B');
     siteNameRef.current = siteConfig.siteName;
     document.title = `${siteConfig.siteName} – Periodismo Independiente y Crítico`;
     updateDynamicAppIcons(siteConfig.logoUrl, siteConfig.siteName, siteConfig.primaryColor);
-  }, [siteConfig.primaryColor, siteConfig.accentColor, siteConfig.siteName, siteConfig.logoUrl]);
+  }, [siteConfig.primaryColor, siteConfig.siteName, siteConfig.logoUrl]);
 
-  const setFontSize = (size: FontSizeScale) => {
+  const setFontSize = useCallback((size: FontSizeScale) => {
     setFontSizeState(size);
-    localStorage.setItem('revista_font_size', size);
-  };
+    try {
+      localStorage.setItem('revista_font_size', size);
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, []);
+
+  const toggleDark = useCallback(() => {
+    setIsDark((d) => !d);
+  }, []);
 
   useEffect(() => {
     const safetyTimer = setTimeout(() => {
@@ -156,6 +168,12 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...raw,
             uiTexts: sanitizeSiteUiTexts({ ...DEFAULT_SITE_UI_TEXTS, ...(raw.uiTexts || {}) }),
             homepageSections: normalizeHomepageSections(raw.homepageSections),
+            activeThemeId: raw.activeThemeId || 'clasico',
+            themeMode: sanitizeThemeMode(raw.themeMode),
+            themeSettings: sanitizeThemeSettings(raw.themeSettings),
+            themeSchedule: sanitizeThemeSchedule(raw.themeSchedule),
+            customThemes: sanitizeCustomThemes(raw.customThemes),
+            themeBanner: sanitizeThemeBanner(raw.themeBanner),
           });
         } else {
           setSiteConfig(DEFAULT_SITE_CONFIG as SiteConfig);
@@ -375,37 +393,58 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [activeCollaboratorIds, allCollaboratorIds, siteConfig.siteName, adminIdentities]
   );
 
-  return (
-    <SiteContext.Provider
-      value={{
-        siteConfig,
-        categories,
-        seriesList,
-        publishedPosts,
-        hasMorePublishedPosts,
-        loadMorePublishedPosts,
-        myPosts,
-        allPostsForAdmin,
-        collaborators,
-        activeCollaboratorIds,
-        adminIdentities,
-        isAuthorVerified,
-        loading,
-        isDark,
-        toggleDark: () => setIsDark((d) => !d),
-        fontSize,
-        setFontSize,
-        readingMode,
-        setReadingMode,
-        currentPath,
-        navigate,
-        authModalOpen,
-        setAuthModalOpen,
-      }}
-    >
-      {children}
-    </SiteContext.Provider>
+  const contextValue = useMemo<SiteContextValue>(
+    () => ({
+      siteConfig,
+      categories,
+      seriesList,
+      publishedPosts,
+      hasMorePublishedPosts,
+      loadMorePublishedPosts,
+      myPosts,
+      allPostsForAdmin,
+      collaborators,
+      activeCollaboratorIds,
+      adminIdentities,
+      isAuthorVerified,
+      loading,
+      isDark,
+      toggleDark,
+      fontSize,
+      setFontSize,
+      readingMode,
+      setReadingMode,
+      currentPath,
+      navigate,
+      authModalOpen,
+      setAuthModalOpen,
+    }),
+    [
+      siteConfig,
+      categories,
+      seriesList,
+      publishedPosts,
+      hasMorePublishedPosts,
+      loadMorePublishedPosts,
+      myPosts,
+      allPostsForAdmin,
+      collaborators,
+      activeCollaboratorIds,
+      adminIdentities,
+      isAuthorVerified,
+      loading,
+      isDark,
+      toggleDark,
+      fontSize,
+      setFontSize,
+      readingMode,
+      currentPath,
+      navigate,
+      authModalOpen,
+    ]
   );
+
+  return <SiteContext.Provider value={contextValue}>{children}</SiteContext.Provider>;
 };
 
 export function useSite() {
