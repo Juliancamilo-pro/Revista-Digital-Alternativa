@@ -8,7 +8,7 @@ import { EditorialImage } from './EditorialImage';
 import { VerifiedBadge } from './VerifiedBadge';
 
 export const CollaboratorsPage: React.FC = () => {
-  const { collaborators, adminIdentities, publishedPosts, navigate } = useSite();
+  const { collaborators, adminIdentities, publishedPosts, siteConfig, navigate } = useSite();
   const [searchText, setSearchText] = useState('');
   const [outletFilter, setOutletFilter] = useState<'all' | 'medio' | 'independiente'>('all');
   const [topicFilter, setTopicFilter] = useState<string>('all');
@@ -242,7 +242,7 @@ export const CollaboratorsPage: React.FC = () => {
   };
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-10 space-y-10 animate-fade-up">
+    <main className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10 animate-fade-up">
       <header className="space-y-3 border-b border-neutral-300 dark:border-neutral-800 pb-6">
         <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] flex items-center gap-1.5">
           <Users className="w-3.5 h-3.5" aria-hidden="true" />
@@ -262,7 +262,7 @@ export const CollaboratorsPage: React.FC = () => {
             onClick={() => navigate('/unete')}
             className="self-start md:self-auto px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
           >
-            Únete a la red
+            {siteConfig.uiTexts?.joinBannerCta || 'Únete a la red'}
           </button>
         </div>
       </header>

@@ -4,7 +4,7 @@ import { db } from '../lib/firebase';
 import { maybeNotifyNewPost } from '../lib/notifications';
 import { loadFeedCache, saveFeedCache } from '../lib/offlineCache';
 import { isTimestampLike } from '../lib/postValidation';
-import { DEFAULT_ADMIN_IDENTITIES, DEFAULT_CATEGORIES, DEFAULT_HOMEPAGE_SECTIONS, DEFAULT_SITE_CONFIG } from '../lib/seedData';
+import { DEFAULT_ADMIN_IDENTITIES, DEFAULT_CATEGORIES, DEFAULT_HOMEPAGE_SECTIONS, DEFAULT_SITE_CONFIG, DEFAULT_SITE_UI_TEXTS, sanitizeSiteUiTexts } from '../lib/seedData';
 import { toDate, updateDynamicAppIcons } from '../lib/utils';
 import { AdminPublicIdentity, Category, CollaboratorPublic, HomepageSectionConfig, Post, SeriesItem, SiteConfig } from '../types/editorial';
 import { useAuth } from './AuthContext';
@@ -154,6 +154,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setSiteConfig({
             ...DEFAULT_SITE_CONFIG,
             ...raw,
+            uiTexts: sanitizeSiteUiTexts({ ...DEFAULT_SITE_UI_TEXTS, ...(raw.uiTexts || {}) }),
             homepageSections: normalizeHomepageSections(raw.homepageSections),
           });
         } else {

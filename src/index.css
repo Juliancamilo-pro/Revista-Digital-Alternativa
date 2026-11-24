@@ -66,22 +66,36 @@
 .editorial-dropcap::first-letter {
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 3.75rem;
-  line-height: 0.85;
+  font-size: 4rem;
+  line-height: 0.82;
   float: left;
-  margin-right: 0.75rem;
-  margin-top: 0.25rem;
+  padding-right: 0.65rem;
+  padding-top: 0.2rem;
   color: var(--editorial-primary);
+  text-transform: uppercase;
 }
 
 .editorial-lead {
-  font-size: 1.12em;
-  line-height: 1.68;
+  font-size: 1.125em;
+  line-height: 1.72;
   color: var(--editorial-ink);
+}
+
+.editorial-prose {
+  max-width: 68ch;
+  font-family: var(--font-serif);
 }
 
 .editorial-paragraph-indent {
   text-indent: 1.75rem;
+}
+
+.editorial-rule-top {
+  border-top: 1px solid rgba(17, 17, 17, 0.14);
+}
+
+.dark .editorial-rule-top {
+  border-top: 1px solid rgba(244, 241, 234, 0.14);
 }
 
 @keyframes marquee-ticker {

@@ -219,8 +219,12 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
           case 'paragraph': {
             const isFirst = paragraphIdx === 0;
             paragraphIdx++;
+            const rawTrimmed = (block.text || '').trim();
+            const startsWithLetter = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(rawTrimmed);
             const classNames = isFirst
-              ? 'editorial-lead'
+              ? startsWithLetter
+                ? 'editorial-lead editorial-dropcap'
+                : 'editorial-lead'
               : paragraphIndent
               ? 'editorial-paragraph-indent'
               : '';

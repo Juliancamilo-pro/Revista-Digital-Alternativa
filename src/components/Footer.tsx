@@ -78,20 +78,39 @@ export const Footer: React.FC = () => {
     downloadTextFile('sitemap.xml', xml, 'application/xml;charset=utf-8');
   };
 
+  const footerAboutBlurb =
+    siteConfig.uiTexts?.footerAboutBlurb || siteConfig.tagline;
+  const footerOriginLine =
+    siteConfig.uiTexts?.footerOriginLine || 'Hecho en el Tolima, para Colombia';
+  const footerSectionsTitle =
+    siteConfig.uiTexts?.footerSectionsTitle || 'Secciones';
+  const footerTransparencyTitle =
+    siteConfig.uiTexts?.footerTransparencyTitle || 'Transparencia y Red';
+  const footerNewsletterTitle =
+    siteConfig.uiTexts?.footerNewsletterTitle || 'Boletín semanal';
+  const footerNewsletterSubtitle =
+    siteConfig.uiTexts?.footerNewsletterSubtitle ||
+    'Recibe investigaciones, columnas y especiales sin algoritmos intermediarios.';
+  const footerNewsletterCta =
+    siteConfig.uiTexts?.footerNewsletterCta || 'Suscribirme al boletín';
+  const footerCopyrightNote =
+    siteConfig.uiTexts?.footerCopyrightNote ||
+    'Hecho en el Tolima, para Colombia. Periodismo independiente sin filtros corporativos.';
+
   return (
-    <footer className="mt-20 rounded-t-3xl border-t-4 border-[var(--editorial-primary)] bg-[#111111] text-[#F4F1EA] shadow-2xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
+    <footer className="mt-20 border-t-4 border-[var(--editorial-primary)] bg-[#111111] text-[#F4F1EA] shadow-2xl">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 pb-12 border-b border-neutral-800">
           {/* Brand & Manifesto */}
           <div className="space-y-4">
             <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight text-white">
               {siteConfig.siteName}
             </h2>
-            <p className="text-sm text-neutral-300 leading-relaxed">
-              {siteConfig.tagline}
+            <p className="text-sm text-neutral-300 leading-relaxed font-editorial">
+              {footerAboutBlurb}
             </p>
             <p className="font-display text-xs font-bold uppercase tracking-widest text-amber-300">
-              Hecho en el Tolima, para Colombia
+              {footerOriginLine}
             </p>
             {hasSocialLinks && (
               <div className="flex flex-wrap gap-2 pt-1 text-xs font-display uppercase tracking-wider text-neutral-300">
@@ -127,7 +146,7 @@ export const Footer: React.FC = () => {
           {/* Sections */}
           <div>
             <h3 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] mb-4">
-              Secciones
+              {footerSectionsTitle}
             </h3>
             <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-neutral-300">
               {categories.slice(0, 12).map((cat) => (
@@ -150,7 +169,7 @@ export const Footer: React.FC = () => {
           {/* Institutional & Legal */}
           <div>
             <h3 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] mb-4">
-              Transparencia y Red
+              {footerTransparencyTitle}
             </h3>
             <ul className="space-y-2 text-sm text-neutral-300">
               <li>
@@ -209,10 +228,10 @@ export const Footer: React.FC = () => {
           {/* Newsletter */}
           <div>
             <h3 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] mb-4">
-              Boletín semanal
+              {footerNewsletterTitle}
             </h3>
             <p className="text-sm text-neutral-300 mb-3">
-              Recibe investigaciones, columnas y especiales sin algoritmos intermediarios.
+              {footerNewsletterSubtitle}
             </p>
             <form onSubmit={handleSubscribe} className="space-y-2.5">
               <input
@@ -245,7 +264,7 @@ export const Footer: React.FC = () => {
                 className="w-full py-2.5 px-4 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
               >
                 <Mail className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{submitting ? 'Suscribiendo...' : 'Suscribirme al boletín'}</span>
+                <span>{submitting ? 'Suscribiendo...' : footerNewsletterCta}</span>
               </button>
             </form>
             {feedback && (
@@ -305,7 +324,7 @@ export const Footer: React.FC = () => {
           )}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2">
             <span>
-              © {new Date().getFullYear()} {siteConfig.siteName}. Hecho en el Tolima, para Colombia. Periodismo independiente sin filtros corporativos.
+              © {new Date().getFullYear()} {siteConfig.siteName}. {footerCopyrightNote}
             </span>
             {siteConfig.contactEmail?.trim() && (
               <span>Contacto editorial: {siteConfig.contactEmail.trim()}</span>

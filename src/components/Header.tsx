@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
+  Calendar,
   ChevronDown,
   Gauge,
   LogOut,
@@ -41,6 +42,21 @@ export const Header: React.FC = () => {
   const sectionsRef = useRef<HTMLDivElement | null>(null);
   const saverRef = useRef<HTMLDivElement | null>(null);
 
+  const formattedTodayEs = useMemo(() => {
+    try {
+      const formatted = new Intl.DateTimeFormat('es-CO', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'America/Bogota',
+      }).format(new Date());
+      return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+    } catch {
+      return 'Edición Colombia';
+    }
+  }, []);
+
   useEffect(() => {
     if (!sectionsOpen && !saverOpen) return;
     const onPointerDown = (e: MouseEvent) => {
@@ -71,6 +87,10 @@ export const Header: React.FC = () => {
   const customLogo = parseMediaUrlMeta(sanitizeExternalUrl(siteConfig.logoUrl || '')).cleanUrl;
   const logoSrc = customLogo || '/brand-mark.png';
 
+  const editionBadge = siteConfig.uiTexts?.headerEditionBadge || 'Edición del día';
+  const editionNumber = siteConfig.uiTexts?.headerEditionNumber || 'N.º 042';
+  const joinCtaLabel = siteConfig.uiTexts?.headerJoinCta || 'Colaborar';
+
   const handleNav = (path: string) => {
     setMobileMenuOpen(false);
     setSectionsOpen(false);
@@ -85,9 +105,46 @@ export const Header: React.FC = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-neutral-200/80 dark:border-neutral-800/80 bg-[#F8F6F1]/90 dark:bg-[#0D0D0D]/90 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-neutral-300/80 dark:border-neutral-800/90 bg-[#F8F6F1]/95 dark:bg-[#0D0D0D]/95 backdrop-blur-md">
       <TricolorHairline />
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 min-h-14 sm:min-h-16 py-1.5 sm:py-0 flex items-center justify-between gap-2 sm:gap-4 lg:gap-5 xl:gap-8">
+
+      {/* Cintillo editorial de cabecera: fecha en español y edición del día */}
+      <div className="hidden sm:block border-b border-neutral-200/90 dark:border-neutral-800/80 bg-[#F1EDE4]/80 dark:bg-[#131313]/90">
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 h-7 flex items-center justify-between gap-4 text-[11px] font-display tracking-wider uppercase text-neutral-700 dark:text-neutral-300">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="inline-flex items-center gap-1.5 font-bold text-[var(--editorial-primary)] shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--editorial-primary)]" aria-hidden="true" />
+              {editionBadge}
+            </span>
+            <span aria-hidden="true" className="text-neutral-400">·</span>
+            <span className="font-tabular font-semibold shrink-0">{editionNumber}</span>
+            <span aria-hidden="true" className="text-neutral-400 hidden md:inline">·</span>
+            <span className="hidden md:inline-flex items-center gap-1 truncate text-neutral-600 dark:text-neutral-400 normal-case font-editorial text-[11px]">
+              <Calendar className="w-3 h-3 shrink-0" aria-hidden="true" />
+              <span>{formattedTodayEs}</span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="hidden lg:inline text-neutral-600 dark:text-neutral-400 truncate max-w-[38ch] normal-case font-editorial text-[11px]">
+              {siteConfig.tagline}
+            </span>
+            <a
+              href="/unete"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNav('/unete');
+              }}
+              className="font-bold text-[#111111] dark:text-[#F4F1EA] hover:text-[var(--editorial-primary)] transition-colors"
+            >
+              {joinCtaLabel}
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Barra principal de cabecera y navegación */}
+      <div className="max-w-[1280px] mx-auto px-3 sm:px-6 lg:px-8 min-h-14 sm:min-h-[60px] py-1.5 sm:py-0 flex items-center justify-between gap-2 sm:gap-4 lg:gap-5 xl:gap-8">
         {/* Zone 1: Brand Wordmark */}
         <a
           href="/"
@@ -95,7 +152,7 @@ export const Header: React.FC = () => {
             e.preventDefault();
             handleNav('/');
           }}
-          className="flex items-center gap-2 sm:gap-2.5 min-w-0 sm:shrink-0 group focus-visible:outline-2 focus-visible:outline-[var(--editorial-primary)]"
+          className="flex items-center gap-2 sm:gap-3 min-w-0 sm:shrink-0 group focus-visible:outline-2 focus-visible:outline-[var(--editorial-primary)]"
         >
           <img
             src={logoSrc}
@@ -103,15 +160,20 @@ export const Header: React.FC = () => {
             width={36}
             height={36}
             referrerPolicy="no-referrer"
-            className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg object-contain bg-white p-0.5 border border-neutral-200 dark:border-neutral-700 shadow-xs"
+            className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg object-contain bg-white p-0.5 border border-neutral-300 dark:border-neutral-700 shadow-xs"
           />
-          <span className="font-display text-[13px] sm:text-lg xl:text-xl font-extrabold uppercase tracking-tight leading-tight text-[#111111] dark:text-[#F4F1EA] group-hover:text-[var(--editorial-primary)] transition-colors whitespace-normal sm:whitespace-nowrap">
-            {siteConfig.siteName}
-          </span>
+          <div className="min-w-0">
+            <span className="block font-display text-[14px] sm:text-xl font-extrabold uppercase tracking-tight leading-none text-[#111111] dark:text-[#F4F1EA] group-hover:text-[var(--editorial-primary)] transition-colors truncate">
+              {siteConfig.siteName}
+            </span>
+            <span className="sm:hidden block text-[10px] font-display font-semibold uppercase tracking-wider text-neutral-600 dark:text-neutral-400 mt-0.5 truncate">
+              {editionBadge} · {editionNumber}
+            </span>
+          </div>
         </a>
 
         {/* Zone 2: Single-line Category Navigation */}
-        <nav aria-label="Secciones principales" className="hidden lg:flex items-center gap-3.5 xl:gap-5 text-xs xl:text-sm font-display font-semibold uppercase tracking-wide min-w-0">
+        <nav aria-label="Secciones principales" className="hidden lg:flex items-center gap-3.5 xl:gap-5 text-xs xl:text-sm font-display font-bold uppercase tracking-wide min-w-0">
           {primaryCategories.map((cat) => {
             const target = `/categoria/${cat.slug}`;
             const active = currentPath === target;
@@ -123,10 +185,10 @@ export const Header: React.FC = () => {
                   e.preventDefault();
                   handleNav(target);
                 }}
-                className={`whitespace-nowrap shrink-0 py-1 border-b-2 transition-colors ${
+                className={`whitespace-nowrap shrink-0 py-1.5 border-b-2 transition-colors ${
                   active
                     ? 'border-[var(--editorial-primary)] text-[var(--editorial-primary)]'
-                    : 'border-transparent text-neutral-700 dark:text-neutral-300 hover:text-black dark:hover:text-white hover:border-neutral-400'
+                    : 'border-transparent text-neutral-800 dark:text-neutral-200 hover:text-[var(--editorial-primary)] hover:border-neutral-400'
                 }`}
               >
                 {cat.name}
@@ -140,10 +202,10 @@ export const Header: React.FC = () => {
               e.preventDefault();
               handleNav('/tolima');
             }}
-            className={`whitespace-nowrap shrink-0 py-1 border-b-2 transition-colors ${
+            className={`whitespace-nowrap shrink-0 py-1.5 border-b-2 transition-colors ${
               currentPath === '/tolima'
                 ? 'border-[var(--editorial-primary)] text-[var(--editorial-primary)]'
-                : 'border-transparent text-neutral-700 dark:text-neutral-300 hover:text-black dark:hover:text-white hover:border-neutral-400'
+                : 'border-transparent text-neutral-800 dark:text-neutral-200 hover:text-[var(--editorial-primary)] hover:border-neutral-400'
             }`}
           >
             Tolima
@@ -154,14 +216,14 @@ export const Header: React.FC = () => {
               type="button"
               onClick={() => setSectionsOpen((s) => !s)}
               aria-expanded={sectionsOpen}
-              className="inline-flex items-center gap-1 whitespace-nowrap shrink-0 py-1 text-neutral-700 dark:text-neutral-300 hover:text-black dark:hover:text-white cursor-pointer"
+              className="inline-flex items-center gap-1 whitespace-nowrap shrink-0 py-1.5 text-neutral-800 dark:text-neutral-200 hover:text-[var(--editorial-primary)] cursor-pointer"
             >
               <span>Secciones</span>
               <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
 
             {sectionsOpen && (
-              <div className="absolute left-0 top-full mt-2 w-64 rounded-2xl bg-[#F8F6F1] dark:bg-[#161616] border border-neutral-200 dark:border-neutral-800 shadow-2xl p-3 grid grid-cols-1 gap-1 z-50">
+              <div className="absolute left-0 top-full mt-2 w-64 rounded-2xl bg-[#F8F6F1] dark:bg-[#161616] border border-neutral-300 dark:border-neutral-800 shadow-2xl p-3 grid grid-cols-1 gap-1 z-50">
                 {categories.map((cat) => (
                   <a
                     key={cat.id}
@@ -228,7 +290,7 @@ export const Header: React.FC = () => {
               className={`inline-flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-full text-xs font-display font-bold uppercase tracking-wider cursor-pointer transition-colors border ${
                 isDataSaverActive
                   ? 'bg-amber-500/15 border-amber-500/50 text-amber-800 dark:text-amber-300'
-                  : 'border-neutral-300/70 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800'
+                  : 'border-neutral-300/80 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200/70 dark:hover:bg-neutral-800'
               }`}
             >
               <Gauge className="w-3.5 h-3.5" aria-hidden="true" />
@@ -238,12 +300,12 @@ export const Header: React.FC = () => {
             </button>
 
             {saverOpen && (
-              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-[#F8F6F1] dark:bg-[#161616] border border-neutral-200 dark:border-neutral-800 shadow-2xl p-3 z-50 space-y-2">
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-[#F8F6F1] dark:bg-[#161616] border border-neutral-300 dark:border-neutral-800 shadow-2xl p-3 z-50 space-y-2">
                 <div className="flex items-center justify-between px-1">
                   <span className="font-display text-xs font-extrabold uppercase tracking-wider">
                     Modo ahorro de datos
                   </span>
-                  <span className="text-[10px] font-tabular text-neutral-500">
+                  <span className="text-[10px] font-tabular text-neutral-600 dark:text-neutral-400">
                     {isDataSaverActive ? 'Activo' : 'Normal'}
                   </span>
                 </div>
@@ -274,12 +336,12 @@ export const Header: React.FC = () => {
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-neutral-500 mt-0.5 leading-snug">{opt.desc}</p>
+                        <p className="text-[11px] text-neutral-600 dark:text-neutral-400 mt-0.5 leading-snug">{opt.desc}</p>
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-[10px] text-neutral-500 px-1 pt-1 border-t border-neutral-200 dark:border-neutral-800">
+                <p className="text-[10px] text-neutral-600 dark:text-neutral-400 px-1 pt-1 border-t border-neutral-200 dark:border-neutral-800">
                   Estado actual: {connectionLabel}
                 </p>
               </div>
@@ -290,7 +352,7 @@ export const Header: React.FC = () => {
             type="button"
             onClick={() => handleNav('/buscar')}
             aria-label="Buscar en la revista"
-            className="p-1.5 sm:p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
+            className="p-1.5 sm:p-2 rounded-full text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
           >
             <Search className="w-4 h-4" />
           </button>
@@ -299,7 +361,7 @@ export const Header: React.FC = () => {
             type="button"
             onClick={toggleDark}
             aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-            className="p-1.5 sm:p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
+            className="p-1.5 sm:p-2 rounded-full text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-black dark:hover:text-white cursor-pointer transition-colors"
           >
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -334,7 +396,7 @@ export const Header: React.FC = () => {
                 type="button"
                 onClick={() => handleNav('/favoritos')}
                 aria-label="Mis artículos guardados"
-                className="p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
+                className="p-2 rounded-full text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
               >
                 <Bookmark className="w-4 h-4" />
               </button>
@@ -343,7 +405,7 @@ export const Header: React.FC = () => {
                 onClick={() => logout()}
                 aria-label={`Cerrar sesión (${userAccount?.displayName || firebaseUser.email})`}
                 title="Cerrar sesión"
-                className="p-2 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
+                className="p-2 rounded-full text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -372,6 +434,11 @@ export const Header: React.FC = () => {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-t border-neutral-200 dark:border-neutral-800 bg-[#F8F6F1] dark:bg-[#111111] px-4 py-4 max-h-[82vh] overflow-y-auto space-y-4">
+          <div className="flex items-center justify-between text-[11px] font-display uppercase tracking-wider text-neutral-600 dark:text-neutral-400 border-b border-neutral-200 dark:border-neutral-800 pb-2">
+            <span>{formattedTodayEs}</span>
+            <span className="font-bold text-[var(--editorial-primary)]">{editionNumber}</span>
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             {categories.map((cat) => (
               <a
@@ -381,7 +448,7 @@ export const Header: React.FC = () => {
                   e.preventDefault();
                   handleNav(`/categoria/${cat.slug}`);
                 }}
-                className="py-2 px-3 rounded-xl border border-neutral-200/70 dark:border-neutral-800 font-display text-sm font-semibold uppercase tracking-wide hover:border-[var(--editorial-primary)]"
+                className="py-2 px-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 font-display text-sm font-semibold uppercase tracking-wide hover:border-[var(--editorial-primary)]"
               >
                 {cat.name}
               </a>
@@ -394,7 +461,7 @@ export const Header: React.FC = () => {
                 <Gauge className="w-3.5 h-3.5" aria-hidden="true" />
                 Modo ahorro de datos
               </span>
-              <span className="text-neutral-500">{isDataSaverActive ? 'Activo' : 'Normal'}</span>
+              <span className="text-neutral-600 dark:text-neutral-400">{isDataSaverActive ? 'Activo' : 'Normal'}</span>
             </div>
             <div className="grid grid-cols-3 gap-1.5">
               {saverOptions.map((opt) => (

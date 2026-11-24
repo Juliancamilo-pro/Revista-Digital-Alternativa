@@ -263,6 +263,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setFirebaseUser(user);
       await loadUserDocs(user);
+      if (user) {
+        user
+          .getIdToken()
+          .then((token) =>
+            fetch('/api/users/sync', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            })
+          )
+          .catch(() => {
+            // Sincronización silenciosa con Cloud SQL
+          });
+      }
       setAuthReady(true);
     });
     return () => unsub();

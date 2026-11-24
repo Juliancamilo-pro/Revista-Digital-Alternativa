@@ -96,7 +96,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   } = useSite();
 
   const { isDataSaverActive } = useDataSaver();
-  const { firebaseUser, bookmarks, toggleBookmark } = useAuth();
+  const { firebaseUser, isAdmin, bookmarks, toggleBookmark } = useAuth();
   const {
     currentTrack,
     isPlaying: globalAudioPlaying,
@@ -120,12 +120,19 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
 
   const poolPost = useMemo(() => {
     const pool = [...publishedPosts, ...myPosts, ...allPostsForAdmin];
-    return pool.find((p) => p.slug === slug || p.id === slug) || null;
-  }, [publishedPosts, myPosts, allPostsForAdmin, slug]);
+    const found = pool.find((p) => p.slug === slug || p.id === slug) || null;
+    if (!found) return null;
+    if (found.status !== 'published' && !isAdmin && found.authorId !== firebaseUser?.uid) {
+      return null;
+    }
+    return found;
+  }, [publishedPosts, myPosts, allPostsForAdmin, slug, isAdmin, firebaseUser?.uid]);
 
   const cachedPost = useMemo(() => {
     if (poolPost) return null;
-    return loadVisitedArticle(slug);
+    const loaded = loadVisitedArticle(slug);
+    if (!loaded || loaded.status !== 'published') return null;
+    return loaded;
   }, [poolPost, slug]);
 
   useEffect(() => {
@@ -698,16 +705,29 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 pb-16">
+      <div className="max-w-[1040px] mx-auto px-4 sm:px-6 pt-8 pb-16">
         {!readingMode && (
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="inline-flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-400 hover:text-[var(--editorial-primary)] mb-6 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300 hover:text-[var(--editorial-primary)] mb-6 cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Volver a portada</span>
           </button>
+        )}
+
+        {post.status !== 'published' && (
+          <div className="mb-6 rounded-2xl border border-amber-500/50 bg-amber-50/90 dark:bg-amber-950/30 p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="space-y-1">
+              <p className="font-display font-extrabold uppercase tracking-wider text-amber-900 dark:text-amber-300">
+                Vista previa privada · Estado: {post.status === 'in_review' ? 'En revisión' : post.status === 'scheduled' ? 'Programada' : post.status === 'unpublished' ? 'Despublicada' : post.status === 'draft' ? 'Borrador' : 'Requiere corrección'}
+              </p>
+              <p className="text-neutral-700 dark:text-neutral-300">
+                Esta publicación no es visible para lectores externos mientras permanezca fuera de edición pública.
+              </p>
+            </div>
+          </div>
         )}
 
         {/* Header + Cover Variants */}
@@ -1457,8 +1477,8 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </nav>
         )}
 
-        {/* Article Body Column (65-72ch measure) */}
-        <div className={`mt-10 max-w-[70ch] mx-auto space-y-6 font-editorial ${fontSizeClass[fontSize]}`}>
+        {/* Article Body Column (68ch reading measure) */}
+        <div className={`mt-10 max-w-[68ch] mx-auto space-y-6 font-editorial ${fontSizeClass[fontSize]}`}>
           <ArticleBodyBlocks
             blocks={bodyBlocks}
             paragraphIndent={post.paragraphIndent}

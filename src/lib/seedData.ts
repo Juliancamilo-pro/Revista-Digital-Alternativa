@@ -1,20 +1,49 @@
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import { logAdminActivity } from './activityLog';
 import { db } from './firebase';
-import { AdminPublicIdentity, Category, HomepageSectionConfig, SiteConfig } from '../types/editorial';
+import { AdminPublicIdentity, Category, HomepageSectionConfig, SiteConfig, SiteUiTexts } from '../types/editorial';
+
+export function sanitizePlainUiText(val: unknown, maxLen: number): string {
+  if (typeof val !== 'string') return '';
+  return val
+    .replace(/<[^>]*>/g, '')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
+export const DEFAULT_SITE_UI_TEXTS: Required<SiteUiTexts> = {
+  headerEditionBadge: 'Edición del día',
+  headerEditionNumber: 'N.º 042',
+  headerJoinCta: 'Colaborar',
+  dailyStripLabel: 'Edición del día',
+  joinBannerKicker: 'Red de medios independientes',
+  joinBannerTitle: 'Periodismo sin censura corporativa',
+  joinBannerSubtitle: 'Publicamos crónicas, investigaciones y opinión con transparencia editorial y pluralidad crítica.',
+  joinBannerCta: 'Únete como colaborador',
+  footerAboutBlurb: 'Periodismo independiente de izquierda, investigación y crónica sin filtros corporativos.',
+  footerOriginLine: 'Hecho en el Tolima, para Colombia',
+  footerSectionsTitle: 'Secciones',
+  footerTransparencyTitle: 'Transparencia y Red',
+  footerNewsletterTitle: 'Boletín semanal',
+  footerNewsletterSubtitle: 'Recibe investigaciones, columnas y especiales sin algoritmos intermediarios.',
+  footerNewsletterCta: 'Suscribirme al boletín',
+  footerCopyrightNote: 'Hecho en el Tolima, para Colombia. Periodismo independiente sin filtros corporativos.',
+};
 
 export const DEFAULT_HOMEPAGE_SECTIONS: HomepageSectionConfig[] = [
-  { id: 'sec_hero', type: 'hero', title: 'Apertura principal', enabled: true, order: 0 },
-  { id: 'sec_featured', type: 'featured', title: 'Notas destacadas', enabled: true, order: 1 },
-  { id: 'sec_breaking', type: 'breaking', title: 'Última hora', enabled: true, order: 2 },
-  { id: 'sec_most_read', type: 'most_read', title: 'Lo más leído', enabled: true, order: 3 },
-  { id: 'sec_opinion', type: 'opinion', title: 'Opinión y columnas', enabled: true, order: 4 },
-  { id: 'sec_series', type: 'series', title: 'Series y especiales', enabled: true, order: 5 },
-  { id: 'sec_galleries', type: 'galleries', title: 'Fotografía documental', enabled: true, order: 6 },
-  { id: 'sec_videos', type: 'videos', title: 'Video y crónicas', enabled: true, order: 7 },
-  { id: 'sec_audio', type: 'audio', title: 'Audio y pódcast', enabled: true, order: 8 },
-  { id: 'sec_collaborators', type: 'collaborators', title: 'Conozcan a nuestros colaboradores', enabled: true, order: 9 },
-  { id: 'sec_feed', type: 'categories_feed', title: 'Todas las publicaciones', enabled: true, order: 10 },
+  { id: 'sec_hero', type: 'hero', title: 'Apertura principal', subtitle: '', ctaLabel: 'Leer completo', enabled: true, order: 0 },
+  { id: 'sec_breaking', type: 'breaking', title: 'Última hora', subtitle: '', ctaLabel: '', enabled: true, order: 1 },
+  { id: 'sec_featured', type: 'featured', title: 'Notas destacadas', subtitle: 'Selección editorial de la semana', ctaLabel: '', enabled: true, order: 2 },
+  { id: 'sec_most_read', type: 'most_read', title: 'Lo más leído', subtitle: 'Ranking de audiencia', ctaLabel: '', enabled: true, order: 3 },
+  { id: 'sec_opinion', type: 'opinion', title: 'Opinión y columnas', subtitle: 'Análisis y debate programático', ctaLabel: 'Ver todas las columnas', enabled: true, order: 4 },
+  { id: 'sec_series', type: 'series', title: 'Series y especiales', subtitle: 'Dossiers de investigación por entregas', ctaLabel: 'Explorar dossier', enabled: true, order: 5 },
+  { id: 'sec_galleries', type: 'galleries', title: 'Fotografía documental', subtitle: 'Fotorreportajes y memoria visual', ctaLabel: 'Más fotografía', enabled: true, order: 6 },
+  { id: 'sec_videos', type: 'videos', title: 'Video y crónicas', subtitle: 'Documentales cortos y entrevistas', ctaLabel: 'Más videos', enabled: true, order: 7 },
+  { id: 'sec_audio', type: 'audio', title: 'Audio y pódcast', subtitle: 'Crónicas sonoras y episodios semanales', ctaLabel: 'Todos los pódcasts', enabled: true, order: 8 },
+  { id: 'sec_collaborators', type: 'collaborators', title: 'Conozcan a nuestros colaboradores', subtitle: 'Periodistas independientes y medios aliados', ctaLabel: 'Ver directorio completo', enabled: true, order: 9 },
+  { id: 'sec_feed', type: 'categories_feed', title: 'Todas las publicaciones', subtitle: 'Archivo cronológico por formato y sección', ctaLabel: 'Cargar más publicaciones', enabled: true, order: 10 },
 ];
 
 export const DEFAULT_ADMIN_IDENTITIES: Record<'owner' | 'magazine', Omit<AdminPublicIdentity, 'updatedAt'>> = {
@@ -114,6 +143,7 @@ export const DEFAULT_SITE_CONFIG: Omit<SiteConfig, 'updatedAt'> = {
   heroPostId: '',
   featuredPostIds: [],
   homepageSections: DEFAULT_HOMEPAGE_SECTIONS,
+  uiTexts: DEFAULT_SITE_UI_TEXTS,
 };
 
 export const DEFAULT_CATEGORIES: Array<Omit<Category, 'createdAt' | 'updatedAt'>> = [
@@ -152,13 +182,25 @@ let cleanupPromise: Promise<void> | null = null;
 
 function sanitizeHomepageSections(sections?: HomepageSectionConfig[]): HomepageSectionConfig[] {
   if (!Array.isArray(sections) || sections.length === 0) return DEFAULT_HOMEPAGE_SECTIONS;
-  const filtered = sections.filter((s) => s.type !== 'live');
+  const filtered: HomepageSectionConfig[] = sections
+    .filter((s) => s.type !== 'live')
+    .map((s) => {
+      const def = DEFAULT_HOMEPAGE_SECTIONS.find((d) => d.type === s.type);
+      return {
+        ...s,
+        title: sanitizePlainUiText(s.title, 90) || def?.title || 'Sección',
+        subtitle: sanitizePlainUiText(s.subtitle, 160),
+        ctaLabel: sanitizePlainUiText(s.ctaLabel, 60),
+      };
+    });
   if (!filtered.some((s) => s.type === 'collaborators')) {
     const feedIdx = filtered.findIndex((s) => s.type === 'categories_feed');
     const collabSection: HomepageSectionConfig = {
       id: 'sec_collaborators',
       type: 'collaborators',
       title: 'Conozcan a nuestros colaboradores',
+      subtitle: 'Periodistas independientes y medios aliados',
+      ctaLabel: 'Ver directorio completo',
       enabled: true,
       order: feedIdx >= 0 ? feedIdx : filtered.length,
     };
@@ -169,6 +211,27 @@ function sanitizeHomepageSections(sections?: HomepageSectionConfig[]): HomepageS
     }
   }
   return filtered.map((s, idx) => ({ ...s, order: idx }));
+}
+
+export function sanitizeSiteUiTexts(raw?: Partial<SiteUiTexts>): Required<SiteUiTexts> {
+  return {
+    headerEditionBadge: sanitizePlainUiText(raw?.headerEditionBadge, 40) || DEFAULT_SITE_UI_TEXTS.headerEditionBadge,
+    headerEditionNumber: sanitizePlainUiText(raw?.headerEditionNumber, 24) || DEFAULT_SITE_UI_TEXTS.headerEditionNumber,
+    headerJoinCta: sanitizePlainUiText(raw?.headerJoinCta, 32) || DEFAULT_SITE_UI_TEXTS.headerJoinCta,
+    dailyStripLabel: sanitizePlainUiText(raw?.dailyStripLabel, 50) || DEFAULT_SITE_UI_TEXTS.dailyStripLabel,
+    joinBannerKicker: sanitizePlainUiText(raw?.joinBannerKicker, 60) || DEFAULT_SITE_UI_TEXTS.joinBannerKicker,
+    joinBannerTitle: sanitizePlainUiText(raw?.joinBannerTitle, 90) || DEFAULT_SITE_UI_TEXTS.joinBannerTitle,
+    joinBannerSubtitle: sanitizePlainUiText(raw?.joinBannerSubtitle, 220) || DEFAULT_SITE_UI_TEXTS.joinBannerSubtitle,
+    joinBannerCta: sanitizePlainUiText(raw?.joinBannerCta, 48) || DEFAULT_SITE_UI_TEXTS.joinBannerCta,
+    footerAboutBlurb: sanitizePlainUiText(raw?.footerAboutBlurb, 240) || DEFAULT_SITE_UI_TEXTS.footerAboutBlurb,
+    footerOriginLine: sanitizePlainUiText(raw?.footerOriginLine, 80) || DEFAULT_SITE_UI_TEXTS.footerOriginLine,
+    footerSectionsTitle: sanitizePlainUiText(raw?.footerSectionsTitle, 40) || DEFAULT_SITE_UI_TEXTS.footerSectionsTitle,
+    footerTransparencyTitle: sanitizePlainUiText(raw?.footerTransparencyTitle, 50) || DEFAULT_SITE_UI_TEXTS.footerTransparencyTitle,
+    footerNewsletterTitle: sanitizePlainUiText(raw?.footerNewsletterTitle, 50) || DEFAULT_SITE_UI_TEXTS.footerNewsletterTitle,
+    footerNewsletterSubtitle: sanitizePlainUiText(raw?.footerNewsletterSubtitle, 200) || DEFAULT_SITE_UI_TEXTS.footerNewsletterSubtitle,
+    footerNewsletterCta: sanitizePlainUiText(raw?.footerNewsletterCta, 48) || DEFAULT_SITE_UI_TEXTS.footerNewsletterCta,
+    footerCopyrightNote: sanitizePlainUiText(raw?.footerCopyrightNote, 180) || DEFAULT_SITE_UI_TEXTS.footerCopyrightNote,
+  };
 }
 
 function buildCleanSiteConfigPayload(source: Partial<SiteConfig>): Record<string, unknown> {
@@ -202,6 +265,7 @@ function buildCleanSiteConfigPayload(source: Partial<SiteConfig>): Record<string
     heroPostId: (source.heroPostId || '').slice(0, 128),
     featuredPostIds: Array.isArray(source.featuredPostIds) ? source.featuredPostIds.slice(0, 12) : [],
     homepageSections: sanitizeHomepageSections(source.homepageSections),
+    uiTexts: sanitizeSiteUiTexts(source.uiTexts),
     updatedAt: serverTimestamp(),
   };
 }

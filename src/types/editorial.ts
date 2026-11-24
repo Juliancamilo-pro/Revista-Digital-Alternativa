@@ -48,8 +48,29 @@ export interface HomepageSectionConfig {
     | 'collaborators'
     | 'categories_feed';
   title: string;
+  subtitle?: string;
+  ctaLabel?: string;
   enabled: boolean;
   order: number;
+}
+
+export interface SiteUiTexts {
+  headerEditionBadge?: string;
+  headerEditionNumber?: string;
+  headerJoinCta?: string;
+  dailyStripLabel?: string;
+  joinBannerKicker?: string;
+  joinBannerTitle?: string;
+  joinBannerSubtitle?: string;
+  joinBannerCta?: string;
+  footerAboutBlurb?: string;
+  footerOriginLine?: string;
+  footerSectionsTitle?: string;
+  footerTransparencyTitle?: string;
+  footerNewsletterTitle?: string;
+  footerNewsletterSubtitle?: string;
+  footerNewsletterCta?: string;
+  footerCopyrightNote?: string;
 }
 
 export interface SiteConfig {
@@ -81,6 +102,7 @@ export interface SiteConfig {
   heroPostId?: string;
   featuredPostIds: string[];
   homepageSections: HomepageSectionConfig[];
+  uiTexts?: SiteUiTexts;
   updatedAt?: unknown;
 }
 

@@ -1,12 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Camera, Headphones, Play, TrendingUp, Users, Zap } from 'lucide-react';
+import {
+  ArrowRight,
+  Camera,
+  Headphones,
+  Pause,
+  Play,
+  TrendingUp,
+  Users,
+  Zap,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { useDataSaver } from '../context/DataSaverContext';
+import { useMediaPlayer } from '../context/MediaPlayerContext';
 import { useSite } from '../context/SiteContext';
-import { formatDateEs, getEditorialKindLabel } from '../lib/utils';
+import { formatDateEs, getEditorialKindLabel, sanitizeExternalUrl } from '../lib/utils';
 import { HomepageSectionConfig, Post, PostType } from '../types/editorial';
 import { ArticleCard } from './ArticleCard';
 import { EditorialImage } from './EditorialImage';
+import { EditorialHomeSkeleton } from './EditorialSkeletons';
 import { TricolorHairline } from './TolimaAccents';
 import { VerifiedBadge } from './VerifiedBadge';
 
@@ -25,6 +36,7 @@ export const HomePage: React.FC = () => {
     navigate,
   } = useSite();
   const { isDataSaverActive } = useDataSaver();
+  const { currentTrack, isPlaying: globalAudioPlaying, playTrack } = useMediaPlayer();
 
   const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | PostType>('all');
   const [feedCatFilter, setFeedCatFilter] = useState<string>('all');
@@ -66,7 +78,7 @@ export const HomePage: React.FC = () => {
   }, [publishedPosts, siteConfig.featuredPostIds, heroPost]);
 
   const breakingPosts = useMemo(
-    () => publishedPosts.filter((p) => p.breaking).slice(0, 6),
+    () => publishedPosts.filter((p) => p.breaking).slice(0, 8),
     [publishedPosts]
   );
 
@@ -85,7 +97,7 @@ export const HomePage: React.FC = () => {
 
   const galleryPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'gallery').slice(0, 3), [publishedPosts]);
   const videoPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'video').slice(0, 3), [publishedPosts]);
-  const audioPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'audio').slice(0, 3), [publishedPosts]);
+  const audioPosts = useMemo(() => publishedPosts.filter((p) => p.type === 'audio').slice(0, 5), [publishedPosts]);
 
   const regionalHighlightPosts = useMemo(() => {
     const terms = ['tolima', 'ibague', 'ibagué', 'tolimense', 'cultura', 'colombia'];
@@ -155,7 +167,7 @@ export const HomePage: React.FC = () => {
       });
     }
 
-    return cards.slice(0, 6);
+    return cards.slice(0, 8);
   }, [adminIdentities, collaborators]);
 
   const filteredFeed = useMemo(() => {
@@ -172,17 +184,17 @@ export const HomePage: React.FC = () => {
     });
   }, [publishedPosts, feedTypeFilter, feedCatFilter]);
 
+  const uiTexts = siteConfig.uiTexts;
+  const dailyStripLabel = uiTexts?.dailyStripLabel || 'Edición del día';
+  const joinBannerKicker = uiTexts?.joinBannerKicker || 'Red de medios independientes';
+  const joinBannerTitle = uiTexts?.joinBannerTitle || 'Periodismo sin censura corporativa';
+  const joinBannerSubtitle =
+    uiTexts?.joinBannerSubtitle ||
+    'Publicamos crónicas, investigaciones y opinión con transparencia editorial y pluralidad crítica.';
+  const joinBannerCta = uiTexts?.joinBannerCta || 'Únete como colaborador';
+
   if (loading && publishedPosts.length === 0) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 space-y-8 animate-pulse">
-        <div className="h-[65vh] rounded-3xl bg-neutral-200 dark:bg-neutral-800" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="h-64 rounded-2xl bg-neutral-200 dark:bg-neutral-800" />
-          <div className="h-64 rounded-2xl bg-neutral-200 dark:bg-neutral-800" />
-          <div className="h-64 rounded-2xl bg-neutral-200 dark:bg-neutral-800" />
-        </div>
-      </div>
-    );
+    return <EditorialHomeSkeleton />;
   }
 
   // Portada limpia "Muy pronto" cuando no hay contenido real publicado
@@ -220,7 +232,7 @@ export const HomePage: React.FC = () => {
                 onClick={() => navigate('/unete')}
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-white/25 hover:bg-white hover:text-[#111111] text-white font-display text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
               >
-                <span>¿Eres colaborador? Únete a la red</span>
+                <span>{joinBannerCta}</span>
               </button>
             </div>
           </div>
@@ -229,11 +241,24 @@ export const HomePage: React.FC = () => {
     );
   }
 
+  const audioQueue = audioPosts
+    .map((p) => ({
+      postId: p.id,
+      title: p.title,
+      slug: p.slug,
+      authorName: p.authorName,
+      mediaUrl: sanitizeExternalUrl(p.mediaUrl || ''),
+      coverImage: p.coverImage,
+      seasonNumber: p.seasonNumber,
+      episodeNumber: p.episodeNumber,
+    }))
+    .filter((t) => Boolean(t.mediaUrl));
+
   const renderSection = (section: HomepageSectionConfig) => {
     switch (section.type) {
       case 'hero': {
         if (!heroPost) return null;
-        const railPosts = publishedPosts.filter((p) => p.id !== heroPost.id).slice(0, 4);
+        const railPosts = publishedPosts.filter((p) => p.id !== heroPost.id).slice(0, 3);
         const heroIsCollab = collaborators.some((c) => c.uid === heroPost.authorId);
         const heroAuthorTargetId =
           heroPost.authorProfileId ||
@@ -254,247 +279,345 @@ export const HomePage: React.FC = () => {
           heroPost.authorVerified,
           heroPost.authorName
         );
+
         return (
-          <section key={section.id} className="space-y-8 animate-fade-up">
-            {/* Full-screen Editorial Hero */}
-            <article className="relative min-h-[70vh] lg:min-h-[78vh] rounded-3xl overflow-hidden bg-[#111111] shadow-2xl group flex items-end">
-              <EditorialImage
-                src={heroPost.coverImage}
-                alt={heroPost.coverAlt || heroPost.title}
-                fallbackTitle={heroPost.title}
-                width={1200}
-                height={800}
-                priority
-                sensitive={heroPost.sensitiveContent}
-                wrapperClassName="absolute inset-0"
-                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-black/20" />
+          <section key={section.id} className="space-y-6 animate-fade-up">
+            {/* Retícula 12 columnas: 8/12 apertura principal 16:9 + 4/12 columna lateral con las 3 notas siguientes */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              <article className="lg:col-span-8 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm hover:shadow-xl transition-shadow group flex flex-col">
+                <a
+                  href={`/articulo/${heroPost.slug}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate(`/articulo/${heroPost.slug}`);
+                  }}
+                  className="relative aspect-[16/9] w-full overflow-hidden bg-neutral-900 block shrink-0"
+                >
+                  <EditorialImage
+                    src={heroPost.coverImage}
+                    alt={heroPost.coverAlt || heroPost.title}
+                    fallbackTitle={heroPost.title}
+                    width={1280}
+                    height={720}
+                    priority
+                    sensitive={heroPost.sensitiveContent}
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
+                  {heroPost.coverCredit && (
+                    <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded bg-black/70 text-[11px] text-white font-display tracking-wide">
+                      {heroPost.coverCredit}
+                    </span>
+                  )}
+                </a>
 
-              {heroPost.coverCredit && (
-                <span className="absolute top-4 right-5 px-2.5 py-1 rounded bg-black/65 text-[11px] text-white/90 font-display tracking-wide">
-                  {heroPost.coverCredit}
-                </span>
-              )}
-
-              <div className="relative z-10 w-full p-6 sm:p-10 lg:p-14 max-w-4xl space-y-4 text-white">
-                <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest">
-                  <span className="px-2.5 py-0.5 rounded bg-[var(--editorial-primary)] text-white">
-                    {heroPost.categoryName}
-                  </span>
-                  <span aria-hidden="true" className="text-white/50">·</span>
-                  <span className="text-white/90">
-                    {getEditorialKindLabel(heroPost.editorialKind)}
-                  </span>
-                  {heroPost.seriesTitle && (
-                    <>
-                      <span aria-hidden="true" className="text-white/50">·</span>
-                      <span className="text-neutral-200">
-                        {heroPost.seriesTitle}
+                <div className="p-5 sm:p-7 flex-1 flex flex-col justify-between gap-4">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest">
+                      <span className="px-2.5 py-0.5 rounded bg-[var(--editorial-primary)] text-white">
+                        {heroPost.categoryName}
                       </span>
-                    </>
+                      <span aria-hidden="true" className="text-neutral-400">·</span>
+                      <span className="text-neutral-700 dark:text-neutral-300">
+                        {getEditorialKindLabel(heroPost.editorialKind)}
+                      </span>
+                      {heroPost.seriesTitle && (
+                        <>
+                          <span aria-hidden="true" className="text-neutral-400">·</span>
+                          <span className="text-neutral-600 dark:text-neutral-400">
+                            {heroPost.seriesTitle}
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    <h1 className="font-display text-3xl sm:text-4xl lg:text-[2.65rem] font-extrabold leading-[1.04] tracking-tight headline-balance text-[#111111] dark:text-[#F4F1EA]">
+                      <a
+                        href={`/articulo/${heroPost.slug}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(`/articulo/${heroPost.slug}`);
+                        }}
+                        className="hover:text-[var(--editorial-primary)] transition-colors"
+                      >
+                        {heroPost.title}
+                      </a>
+                    </h1>
+
+                    {heroPost.subtitle && (
+                      <p className="text-base sm:text-lg text-neutral-700 dark:text-neutral-300 leading-relaxed font-editorial line-clamp-3">
+                        {heroPost.subtitle}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-3 border-t border-neutral-200 dark:border-neutral-800 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+                      <a
+                        href={`/colaborador/${heroAuthorTargetId}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(`/colaborador/${heroAuthorTargetId}`);
+                        }}
+                        className="inline-flex items-center gap-1.5 font-bold text-neutral-900 dark:text-white hover:text-[var(--editorial-primary)] transition-colors"
+                      >
+                        <span>{heroPost.authorName}</span>
+                        {heroVerified && <VerifiedBadge size="xs" />}
+                      </a>
+                      <span aria-hidden="true">·</span>
+                      <span>{formatDateEs(heroPost.publishedAt || heroPost.createdAt)}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-tabular">{heroPost.readTimeMinutes} min</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/articulo/${heroPost.slug}`)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] hover:bg-[var(--editorial-primary)] dark:hover:bg-[var(--editorial-primary)] dark:hover:text-white font-display text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      <span>{section.ctaLabel || 'Leer completo'}</span>
+                      <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              {/* Columna lateral 4/12: 3 notas compactas + invitación editorial */}
+              <aside className="lg:col-span-4 flex flex-col justify-between gap-5">
+                <div className="flex-1 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex flex-col shadow-sm">
+                  <div className="flex items-center justify-between border-b-2 border-[var(--editorial-primary)] pb-2.5 mb-2">
+                    <h2 className="font-display text-sm font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
+                      {dailyStripLabel}
+                    </h2>
+                    <span className="font-tabular text-[11px] text-neutral-500 uppercase">
+                      {railPosts.length} notas
+                    </span>
+                  </div>
+
+                  {railPosts.length > 0 ? (
+                    <div className="divide-y divide-neutral-200 dark:divide-neutral-800 flex-1 flex flex-col justify-between">
+                      {railPosts.map((p) => (
+                        <ArticleCard key={p.id} post={p} variant="compact" />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-neutral-600 dark:text-neutral-400 py-6 font-editorial">
+                      Más entregas editoriales en preparación.
+                    </p>
                   )}
                 </div>
 
-                <h1 className="font-display text-3xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.02] tracking-tight headline-balance">
-                  <a
-                    href={`/articulo/${heroPost.slug}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate(`/articulo/${heroPost.slug}`);
-                    }}
-                    className="hover:text-[#FCA5A5] transition-colors"
-                  >
-                    {heroPost.title}
-                  </a>
-                </h1>
-
-                {heroPost.subtitle && (
-                  <p className="text-base sm:text-xl text-neutral-200 leading-relaxed max-w-3xl font-editorial">
-                    {heroPost.subtitle}
+                {/* Tarjeta compacta "Únete como colaborador" */}
+                <div className="rounded-2xl border border-neutral-800 bg-gradient-to-br from-[#141414] to-[#280D0D] text-white p-5 space-y-3 shadow-sm">
+                  <p className="font-display text-[11px] font-bold uppercase tracking-widest text-[#FCA5A5]">
+                    {joinBannerKicker}
                   </p>
-                )}
-
-                <div className="pt-2 flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-300">
-                    <a
-                      href={`/colaborador/${heroAuthorTargetId}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(`/colaborador/${heroAuthorTargetId}`);
-                      }}
-                      className="inline-flex items-center gap-1.5 font-bold text-white hover:text-[#FCA5A5] transition-colors"
-                    >
-                      <span>{heroPost.authorName}</span>
-                      {heroVerified && <VerifiedBadge size="xs" />}
-                    </a>
-                    <span aria-hidden="true">·</span>
-                    <span>{formatDateEs(heroPost.publishedAt || heroPost.createdAt)}</span>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-tabular">{heroPost.readTimeMinutes} min de lectura</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/articulo/${heroPost.slug}`)}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white text-[#111111] hover:bg-[var(--editorial-primary)] hover:text-white font-display text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-md"
-                  >
-                    <span>Leer completo</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </article>
-
-            {/* Edición del día & Red CTA strip */}
-            {railPosts.length > 0 && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                <div className="lg:col-span-8 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 shadow-sm">
-                  <h2 className="font-display text-sm font-extrabold uppercase tracking-widest text-[var(--editorial-primary)] pb-3 border-b border-neutral-200 dark:border-neutral-800">
-                    Edición del día
-                  </h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 divide-y sm:divide-y-0 divide-neutral-200 dark:divide-neutral-800">
-                    {railPosts.map((p) => (
-                      <ArticleCard key={p.id} post={p} variant="compact" />
-                    ))}
-                  </div>
-                </div>
-
-                <aside className="lg:col-span-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-gradient-to-br from-[#141414] to-[#260D0D] text-white p-6 flex flex-col justify-between shadow-sm">
-                  <div className="space-y-2">
-                    <p className="font-display text-xs font-bold uppercase tracking-widest text-[#FCA5A5]">
-                      Red de medios independientes
-                    </p>
-                    <h3 className="font-display text-2xl font-extrabold uppercase leading-tight">
-                      Periodismo sin censura corporativa
-                    </h3>
-                    <p className="text-sm text-neutral-300 leading-relaxed">
-                      Publicamos crónicas, investigaciones y opinión con transparencia editorial y pluralidad crítica.
-                    </p>
-                  </div>
-                  <div className="mt-5 flex flex-wrap gap-2">
+                  <h3 className="font-display text-xl font-extrabold uppercase leading-tight">
+                    {joinBannerTitle}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed line-clamp-2">
+                    {joinBannerSubtitle}
+                  </p>
+                  <div className="pt-1 flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => navigate('/unete')}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] font-display text-xs font-bold uppercase tracking-wider text-white cursor-pointer transition-colors"
                     >
-                      <span>Únete como colaborador</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/como-trabajamos')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/25 hover:bg-white hover:text-[#111111] font-display text-xs font-bold uppercase tracking-wider text-white cursor-pointer transition-colors"
-                    >
-                      <span>Cómo trabajamos</span>
+                      <span>{joinBannerCta}</span>
+                      <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   </div>
-                </aside>
-              </div>
-            )}
+                </div>
+              </aside>
+            </div>
           </section>
-        );
-      }
-
-      case 'featured': {
-        if (featuredPosts.length === 0) return null;
-        return (
-          <motion.section
-            key={section.id}
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.08 }}
-            transition={{ duration: 0.3 }}
-            className="space-y-5"
-          >
-            <div className="flex items-baseline justify-between border-b border-neutral-300 dark:border-neutral-800 pb-2">
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight">
-                {section.title}
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {featuredPosts.map((post) => (
-                <ArticleCard key={post.id} post={post} />
-              ))}
-            </div>
-          </motion.section>
         );
       }
 
       case 'breaking': {
         if (breakingPosts.length === 0) return null;
         return (
-          <section key={section.id} className="rounded-2xl border border-[var(--editorial-primary)]/40 bg-white dark:bg-[#141414] p-5 sm:p-6 shadow-sm">
-            <div className="flex flex-wrap items-center gap-2.5 mb-4">
-              <span className="px-2.5 py-0.5 rounded bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest whitespace-nowrap shrink-0">
-                {section.title}
-              </span>
-              <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                Actualizaciones recientes de nuestra redacción y colaboradores
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {breakingPosts.slice(0, 4).map((post) => (
-                <article key={post.id} className="space-y-1.5">
-                  <p className="text-xs font-display font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
-                    {post.categoryName} · {formatDateEs(post.publishedAt || post.createdAt)}
-                  </p>
-                  <h3 className="font-display text-lg font-bold leading-snug">
-                    <a
-                      href={`/articulo/${post.slug}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(`/articulo/${post.slug}`);
-                      }}
-                      className="hover:text-[var(--editorial-primary)] transition-colors"
-                    >
-                      {post.title}
-                    </a>
-                  </h3>
-                </article>
-              ))}
+          <section
+            key={section.id}
+            aria-label={section.title || 'Última hora'}
+            className="h-10 rounded-xl border border-[var(--editorial-primary)]/40 bg-[#111111] text-white overflow-hidden flex items-center shadow-sm"
+          >
+            <span className="h-full inline-flex items-center gap-1.5 px-3.5 sm:px-4 bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest shrink-0">
+              <Zap className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{section.title || 'Última hora'}</span>
+            </span>
+            <div className="flex-1 overflow-hidden">
+              <div className="animate-marquee-ticker py-2">
+                {[...breakingPosts, ...breakingPosts].map((post, idx) => (
+                  <a
+                    key={`${post.id}_${idx}`}
+                    href={`/articulo/${post.slug}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate(`/articulo/${post.slug}`);
+                    }}
+                    className="inline-flex items-center gap-2.5 px-5 text-xs sm:text-sm font-display font-semibold hover:text-[#FCA5A5] transition-colors whitespace-nowrap"
+                  >
+                    <span className="text-[#FCA5A5] uppercase font-bold">
+                      {post.categoryName}
+                    </span>
+                    <span>{post.title}</span>
+                    <span aria-hidden="true" className="text-neutral-600">·</span>
+                  </a>
+                ))}
+              </div>
             </div>
           </section>
         );
       }
 
+      case 'featured': {
+        if (featuredPosts.length === 0) return null;
+        const [firstFeatured, ...restFeatured] = featuredPosts;
+        return (
+          <motion.section
+            key={section.id}
+            initial={isDataSaverActive ? false : { opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.08 }}
+            transition={{ duration: 0.28 }}
+            className="space-y-5 editorial-rule-top pt-8"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
+                  {section.title}
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* 1 grande (6/12) + 2 medianas (3/12 cada una) en escritorio */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6 items-stretch">
+              {firstFeatured && (
+                <div className="md:col-span-2 lg:col-span-6">
+                  <ArticleCard post={firstFeatured} variant="featured_lead" />
+                </div>
+              )}
+              {restFeatured.slice(0, 2).map((post) => (
+                <div key={post.id} className="lg:col-span-3">
+                  <ArticleCard post={post} />
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        );
+      }
+
       case 'most_read': {
         if (mostReadPosts.length === 0) return null;
+        const [topRead, ...otherRead] = mostReadPosts;
         return (
-          <section key={section.id} className="rounded-2xl bg-white dark:bg-[#141414] border border-neutral-200 dark:border-neutral-800 p-6 sm:p-8 shadow-sm">
-            <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3 mb-6">
-              <TrendingUp className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight">
-                {section.title}
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-              {mostReadPosts.map((post, idx) => (
-                <article key={post.id} className="flex md:flex-col gap-3 md:gap-2">
-                  <span className="font-display text-3xl font-extrabold text-[var(--editorial-primary)] font-tabular leading-none">
-                    0{idx + 1}
-                  </span>
-                  <div>
-                    <p className="text-xs font-display uppercase tracking-wider text-neutral-500">
-                      {post.categoryName}
-                    </p>
-                    <h3 className="mt-1 font-display text-lg font-bold leading-snug">
-                      <a
-                        href={`/articulo/${post.slug}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          navigate(`/articulo/${post.slug}`);
-                        }}
-                        className="hover:text-[var(--editorial-primary)] transition-colors"
-                      >
-                        {post.title}
-                      </a>
-                    </h3>
-                    <p className="mt-1.5 text-xs font-tabular text-neutral-500">
-                      {(post.viewCount || 0).toLocaleString('es-ES')} lecturas
-                    </p>
+          <section key={section.id} className="editorial-rule-top pt-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* Lectura principal destacada (7/12) */}
+              {topRead && (
+                <article className="lg:col-span-7 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm flex flex-col sm:flex-row">
+                  <a
+                    href={`/articulo/${topRead.slug}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate(`/articulo/${topRead.slug}`);
+                    }}
+                    className="sm:w-5/12 aspect-[16/10] sm:aspect-auto shrink-0 bg-neutral-900 overflow-hidden block"
+                  >
+                    <EditorialImage
+                      src={topRead.coverImage}
+                      alt={topRead.coverAlt || topRead.title}
+                      fallbackTitle={topRead.title}
+                      width={700}
+                      height={525}
+                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                    />
+                  </a>
+                  <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between gap-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                        <span className="font-tabular px-2 py-0.5 rounded bg-[var(--editorial-primary)]/10">
+                          #01 Más leída
+                        </span>
+                        <span>{topRead.categoryName}</span>
+                      </div>
+                      <h3 className="font-display text-2xl sm:text-[1.7rem] font-extrabold leading-tight headline-balance">
+                        <a
+                          href={`/articulo/${topRead.slug}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            navigate(`/articulo/${topRead.slug}`);
+                          }}
+                          className="hover:text-[var(--editorial-primary)] transition-colors"
+                        >
+                          {topRead.title}
+                        </a>
+                      </h3>
+                      {topRead.subtitle && (
+                        <p className="text-sm text-neutral-700 dark:text-neutral-300 line-clamp-3 font-editorial">
+                          {topRead.subtitle}
+                        </p>
+                      )}
+                    </div>
+                    <div className="pt-3 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-400">
+                      <span>{topRead.authorName}</span>
+                      <span className="font-tabular font-semibold">
+                        {(topRead.viewCount || 0).toLocaleString('es-CO')} lecturas
+                      </span>
+                    </div>
                   </div>
                 </article>
-              ))}
+              )}
+
+              {/* Lista numerada compacta en columna lateral (5/12) */}
+              <aside className="lg:col-span-5 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 sm:p-6 shadow-sm flex flex-col">
+                <div className="flex items-center justify-between border-b-2 border-[var(--editorial-primary)] pb-2.5 mb-2">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-[var(--editorial-primary)]" aria-hidden="true" />
+                    <h2 className="font-display text-lg font-extrabold uppercase tracking-tight">
+                      {section.title}
+                    </h2>
+                  </div>
+                  {section.subtitle && (
+                    <span className="text-[11px] text-neutral-500 hidden sm:inline">{section.subtitle}</span>
+                  )}
+                </div>
+                <ol className="divide-y divide-neutral-200 dark:divide-neutral-800 flex-1 flex flex-col justify-between">
+                  {(otherRead.length > 0 ? otherRead : mostReadPosts).map((post, idx) => {
+                    const rank = otherRead.length > 0 ? idx + 2 : idx + 1;
+                    return (
+                      <li key={post.id} className="py-2.5 first:pt-1 last:pb-1 flex items-start gap-3">
+                        <span className="font-display text-2xl font-extrabold text-[var(--editorial-primary)] font-tabular leading-none pt-0.5 shrink-0">
+                          0{rank}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-display font-bold uppercase tracking-wider text-neutral-500">
+                            {post.categoryName} · {(post.viewCount || 0).toLocaleString('es-CO')} lecturas
+                          </p>
+                          <h3 className="font-display text-base sm:text-[17px] font-bold leading-snug line-clamp-2 mt-0.5">
+                            <a
+                              href={`/articulo/${post.slug}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                navigate(`/articulo/${post.slug}`);
+                              }}
+                              className="hover:text-[var(--editorial-primary)] transition-colors"
+                            >
+                              {post.title}
+                            </a>
+                          </h3>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </aside>
             </div>
           </section>
         );
@@ -503,11 +626,18 @@ export const HomePage: React.FC = () => {
       case 'opinion': {
         if (opinionPosts.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5">
-            <div className="flex items-baseline justify-between border-b border-neutral-300 dark:border-neutral-800 pb-2">
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight">
-                {section.title}
-              </h2>
+          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
+                  {section.title}
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
               <a
                 href="/categoria/opinion"
                 onClick={(e) => {
@@ -516,10 +646,10 @@ export const HomePage: React.FC = () => {
                 }}
                 className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
               >
-                Ver todas las columnas
+                {section.ctaLabel || 'Ver todas las columnas'}
               </a>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
               {opinionPosts.map((post) => (
                 <ArticleCard key={post.id} post={post} variant="opinion" />
               ))}
@@ -531,44 +661,52 @@ export const HomePage: React.FC = () => {
       case 'series': {
         if (seriesList.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5">
-            <div className="flex items-baseline justify-between border-b border-neutral-300 dark:border-neutral-800 pb-2">
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight">
-                {section.title}
-              </h2>
+          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
+                  {section.title}
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Carrusel horizontal con tarjetas de ancho fijo */}
+            <div className="flex gap-5 overflow-x-auto pb-3 snap-x snap-mandatory">
               {seriesList.map((ser) => (
                 <article
                   key={ser.id}
                   onClick={() => navigate(`/serie/${ser.slug}`)}
-                  className="group cursor-pointer rounded-3xl border border-neutral-800 bg-[#111111] text-white grid grid-cols-1 sm:grid-cols-12 overflow-hidden shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300"
+                  className="w-[290px] sm:w-[320px] shrink-0 snap-start group cursor-pointer rounded-2xl border border-neutral-800 bg-[#111111] text-white overflow-hidden shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex flex-col"
                 >
-                  <div className="sm:col-span-5 aspect-[4/3] sm:aspect-auto overflow-hidden">
+                  <div className="aspect-[16/10] overflow-hidden shrink-0">
                     <EditorialImage
                       src={ser.coverImage}
                       alt={ser.title}
                       fallbackTitle={ser.title}
-                      width={600}
-                      height={450}
+                      width={640}
+                      height={400}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                   </div>
-                  <div className="sm:col-span-7 p-6 flex flex-col justify-between">
+                  <div className="p-5 flex-1 flex flex-col justify-between gap-3">
                     <div>
-                      <p className="font-display text-xs font-bold uppercase tracking-widest text-[#FCA5A5]">
-                        Dossier especial
+                      <p className="font-display text-[11px] font-bold uppercase tracking-widest text-[#FCA5A5]">
+                        Especial seriado
                       </p>
-                      <h3 className="mt-1.5 font-display text-2xl font-bold leading-tight group-hover:underline">
+                      <h3 className="mt-1 font-display text-xl font-bold leading-tight line-clamp-2 group-hover:underline">
                         {ser.title}
                       </h3>
-                      <p className="mt-2 text-sm text-neutral-300 line-clamp-3 leading-relaxed">
+                      <p className="mt-2 text-xs sm:text-sm text-neutral-300 line-clamp-3 leading-relaxed">
                         {ser.description}
                       </p>
                     </div>
-                    <span className="mt-4 inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider text-white">
-                      <span>Explorar dossier</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
+                    <span className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider text-white pt-2 border-t border-white/10">
+                      <span>{section.ctaLabel || 'Explorar dossier'}</span>
+                      <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                     </span>
                   </div>
                 </article>
@@ -580,13 +718,21 @@ export const HomePage: React.FC = () => {
 
       case 'galleries': {
         if (galleryPosts.length === 0) return null;
+        const [leadGallery, ...sideGalleries] = galleryPosts;
         return (
-          <section key={section.id} className="space-y-5">
-            <div className="flex items-center justify-between border-b border-neutral-300 dark:border-neutral-800 pb-2">
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                <Camera className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                <span>{section.title}</span>
-              </h2>
+          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
+                  <span>{section.title}</span>
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
               <a
                 href="/categoria/fotografia"
                 onClick={(e) => {
@@ -595,13 +741,50 @@ export const HomePage: React.FC = () => {
                 }}
                 className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
               >
-                Más fotografía
+                {section.ctaLabel || 'Más fotografía'}
               </a>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {galleryPosts.map((post) => (
-                <ArticleCard key={post.id} post={post} />
-              ))}
+
+            {/* Mosaico editorial */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
+              {leadGallery && (
+                <div className={sideGalleries.length > 0 ? 'md:col-span-7' : 'md:col-span-12'}>
+                  <ArticleCard post={leadGallery} variant="featured_lead" />
+                </div>
+              )}
+              {sideGalleries.length > 0 && (
+                <div className="md:col-span-5 grid grid-cols-1 gap-5">
+                  {sideGalleries.map((post) => (
+                    <article
+                      key={post.id}
+                      onClick={() => navigate(`/articulo/${post.slug}`)}
+                      className="group cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden grid grid-cols-12 shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      <div className="col-span-5 aspect-[4/3] bg-neutral-900 overflow-hidden">
+                        <EditorialImage
+                          src={post.coverImage}
+                          alt={post.coverAlt || post.title}
+                          fallbackTitle={post.title}
+                          width={400}
+                          height={300}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                      </div>
+                      <div className="col-span-7 p-4 flex flex-col justify-between">
+                        <div>
+                          <p className="text-[10px] font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                            {post.galleryItems?.length ? `${post.galleryItems.length} fotos` : 'Fotorreportaje'}
+                          </p>
+                          <h3 className="mt-1 font-display text-lg font-bold leading-tight line-clamp-2 group-hover:text-[var(--editorial-primary)]">
+                            {post.title}
+                          </h3>
+                        </div>
+                        <p className="text-xs text-neutral-500 mt-2">{post.authorName}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         );
@@ -610,12 +793,19 @@ export const HomePage: React.FC = () => {
       case 'videos': {
         if (videoPosts.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5">
-            <div className="flex items-center justify-between border-b border-neutral-300 dark:border-neutral-800 pb-2">
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                <Play className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                <span>{section.title}</span>
-              </h2>
+          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <Play className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
+                  <span>{section.title}</span>
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
               <a
                 href="/categoria/video"
                 onClick={(e) => {
@@ -624,12 +814,12 @@ export const HomePage: React.FC = () => {
                 }}
                 className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
               >
-                Más videos
+                {section.ctaLabel || 'Más videos'}
               </a>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
               {videoPosts.map((post) => (
-                <ArticleCard key={post.id} post={post} />
+                <ArticleCard key={post.id} post={post} variant="video" />
               ))}
             </div>
           </section>
@@ -639,12 +829,19 @@ export const HomePage: React.FC = () => {
       case 'audio': {
         if (audioPosts.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5">
-            <div className="flex items-center justify-between border-b border-neutral-300 dark:border-neutral-800 pb-2">
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                <Headphones className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                <span>{section.title}</span>
-              </h2>
+          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <Headphones className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
+                  <span>{section.title}</span>
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
               <a
                 href="/categoria/audio-y-podcast"
                 onClick={(e) => {
@@ -653,13 +850,104 @@ export const HomePage: React.FC = () => {
                 }}
                 className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
               >
-                Todos los pódcasts
+                {section.ctaLabel || 'Todos los pódcasts'}
               </a>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {audioPosts.map((post) => (
-                <ArticleCard key={post.id} post={post} />
-              ))}
+
+            {/* Lista compacta con reproductor integrado */}
+            <div className="rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] divide-y divide-neutral-200 dark:divide-neutral-800 shadow-sm">
+              {audioPosts.map((post) => {
+                const mediaSrc = sanitizeExternalUrl(post.mediaUrl || '');
+                const isActiveTrack = currentTrack?.postId === post.id;
+                const isThisPlaying = isActiveTrack && globalAudioPlaying;
+                return (
+                  <article
+                    key={post.id}
+                    className="p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-neutral-100/60 dark:hover:bg-neutral-900/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!mediaSrc) {
+                            navigate(`/articulo/${post.slug}`);
+                            return;
+                          }
+                          playTrack(
+                            {
+                              postId: post.id,
+                              title: post.title,
+                              slug: post.slug,
+                              authorName: post.authorName,
+                              mediaUrl: mediaSrc,
+                              coverImage: post.coverImage,
+                              seasonNumber: post.seasonNumber,
+                              episodeNumber: post.episodeNumber,
+                            },
+                            audioQueue
+                          );
+                        }}
+                        aria-label={isThisPlaying ? `Pausar ${post.title}` : `Reproducir ${post.title}`}
+                        className={`w-11 h-11 rounded-full shrink-0 flex items-center justify-center cursor-pointer transition-colors ${
+                          isThisPlaying
+                            ? 'bg-[#111111] dark:bg-white text-white dark:text-black'
+                            : 'bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white'
+                        }`}
+                      >
+                        {isThisPlaying ? (
+                          <Pause className="w-4 h-4" aria-hidden="true" />
+                        ) : (
+                          <Play className="w-4 h-4 ml-0.5 fill-current" aria-hidden="true" />
+                        )}
+                      </button>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-display font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
+                          <span>{post.categoryName}</span>
+                          {post.episodeNumber && (
+                            <>
+                              <span aria-hidden="true" className="text-neutral-400">·</span>
+                              <span className="font-tabular">Ep. {post.episodeNumber}</span>
+                            </>
+                          )}
+                          {post.mediaDurationLabel && (
+                            <>
+                              <span aria-hidden="true" className="text-neutral-400">·</span>
+                              <span className="font-tabular text-neutral-600 dark:text-neutral-400">
+                                {post.mediaDurationLabel}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        <h3 className="font-display text-lg sm:text-xl font-bold leading-snug line-clamp-1">
+                          <a
+                            href={`/articulo/${post.slug}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              navigate(`/articulo/${post.slug}`);
+                            }}
+                            className="hover:text-[var(--editorial-primary)] transition-colors"
+                          >
+                            {post.title}
+                          </a>
+                        </h3>
+                        <p className="text-xs text-neutral-600 dark:text-neutral-400 truncate">
+                          {post.authorName} · {formatDateEs(post.publishedAt || post.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/articulo/${post.slug}`)}
+                      className="self-start sm:self-center shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-[var(--editorial-primary)] font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                    >
+                      <span>Escuchar nota</span>
+                      <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </article>
+                );
+              })}
             </div>
           </section>
         );
@@ -668,27 +956,35 @@ export const HomePage: React.FC = () => {
       case 'collaborators': {
         if (directoryCards.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-neutral-300 dark:border-neutral-800 pb-2">
-              <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                <Users className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                <span>{section.title || 'Conozcan a nuestros colaboradores'}</span>
-              </h2>
+          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                  <Users className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
+                  <span>{section.title || 'Conozcan a nuestros colaboradores'}</span>
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => navigate('/colaboradores')}
                 className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline cursor-pointer"
               >
-                <span>Ver directorio completo</span>
+                <span>{section.ctaLabel || 'Ver directorio completo'}</span>
                 <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {/* Carrusel horizontal con tarjetas de ancho fijo */}
+            <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
               {directoryCards.map((item) => (
                 <article
                   key={item.id}
                   onClick={() => navigate(`/colaborador/${item.id}`)}
-                  className="cursor-pointer rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex items-start gap-4 hover:shadow-md transition-shadow"
+                  className="w-[260px] sm:w-[280px] shrink-0 snap-start cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex items-start gap-3.5 hover:shadow-md transition-shadow"
                 >
                   <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-900 text-white shrink-0 flex items-center justify-center font-display text-lg font-extrabold uppercase">
                     {item.avatarUrl ? (
@@ -705,7 +1001,7 @@ export const HomePage: React.FC = () => {
                     )}
                   </div>
                   <div className="min-w-0 flex-1 space-y-1">
-                    <p className="text-[10px] font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                    <p className="text-[10px] font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)] truncate">
                       {item.subtitle}
                     </p>
                     <h3 className="font-display text-lg font-extrabold uppercase tracking-tight flex items-center gap-1.5">
@@ -731,16 +1027,23 @@ export const HomePage: React.FC = () => {
         return (
           <motion.section
             key={section.id}
-            initial={{ opacity: 0, y: 12 }}
+            initial={isDataSaverActive ? false : { opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.05 }}
-            transition={{ duration: 0.3 }}
-            className="space-y-6 pt-4 border-t border-neutral-300 dark:border-neutral-800"
+            transition={{ duration: 0.28 }}
+            className="space-y-6 pt-8 editorial-rule-top"
           >
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <h2 className="font-display text-3xl font-extrabold uppercase tracking-tight">
-                {section.title}
-              </h2>
+              <div>
+                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
+                  {section.title}
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <div className="inline-flex flex-wrap gap-1 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] p-1 text-xs font-display font-bold uppercase tracking-wider">
@@ -794,7 +1097,7 @@ export const HomePage: React.FC = () => {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
                   {filteredFeed.slice(0, visibleCount).map((post) => (
                     <ArticleCard key={post.id} post={post} />
                   ))}
@@ -814,7 +1117,7 @@ export const HomePage: React.FC = () => {
                       }}
                       className="px-6 py-3 rounded-full border-2 border-[#111111] dark:border-neutral-500 font-display font-bold uppercase tracking-wider text-sm hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors cursor-pointer"
                     >
-                      Cargar más publicaciones
+                      {section.ctaLabel || 'Cargar más publicaciones'}
                     </button>
                   </div>
                 )}
@@ -830,48 +1133,17 @@ export const HomePage: React.FC = () => {
   };
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-12">
-      {/* Cinta deslizante "Última hora" cuando existan notas marcadas como breaking */}
-      {breakingPosts.length > 0 && (
-        <div className="rounded-xl border border-[var(--editorial-primary)]/40 bg-[#111111] text-white overflow-hidden flex items-center shadow-sm">
-          <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest shrink-0">
-            <Zap className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Última hora</span>
-          </span>
-          <div className="flex-1 overflow-hidden">
-            <div className="animate-marquee-ticker py-2">
-              {[...breakingPosts, ...breakingPosts].map((post, idx) => (
-                <a
-                  key={`${post.id}_${idx}`}
-                  href={`/articulo/${post.slug}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigate(`/articulo/${post.slug}`);
-                  }}
-                  className="inline-flex items-center gap-3 px-6 text-xs sm:text-sm font-display font-semibold hover:text-[#FCA5A5] transition-colors whitespace-nowrap"
-                >
-                  <span className="text-[var(--editorial-primary)] uppercase font-bold">
-                    {post.categoryName}
-                  </span>
-                  <span>{post.title}</span>
-                  <span aria-hidden="true" className="text-neutral-600">·</span>
-                </a>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
+    <main className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-12 sm:space-y-14">
       {orderedSections.map((sec) => {
         if (sec.type === 'categories_feed') {
           return (
             <React.Fragment key={sec.id}>
               {/* Vitrina regional: Tolima, Colombia, Cultura, Opinión y Multimedia */}
               <motion.section
-                initial={{ opacity: 0, y: 12 }}
+                initial={isDataSaverActive ? false : { opacity: 0, y: 10 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.1 }}
-                transition={{ duration: 0.3 }}
+                transition={{ duration: 0.28 }}
                 className="tolima-weave-bg rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm"
               >
                 <TricolorHairline />
@@ -918,7 +1190,7 @@ export const HomePage: React.FC = () => {
                   </div>
 
                   {regionalHighlightPosts.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
                       {regionalHighlightPosts.map((post) => (
                         <ArticleCard key={post.id} post={post} />
                       ))}
