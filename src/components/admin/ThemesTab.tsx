@@ -425,8 +425,8 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
   return (
     <div className="space-y-8">
       {/* Cabecera de control y acciones rápidas */}
-      <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-5 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-neutral-200 dark:border-neutral-800 pb-4">
+      <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-5 shadow-xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[var(--editorial-border)] pb-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-xs font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
               <Palette className="w-4 h-4" aria-hidden="true" />
@@ -435,7 +435,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
             <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight">
               Temas y decoración de la revista
             </h2>
-            <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400">
+            <p className="text-xs sm:text-sm text-[var(--editorial-muted)]">
               Cambia paletas, adornos SVG, partículas y saludos especiales sin alterar artículos ni accesibilidad. El tema <strong>Clásico</strong> mantiene el diseño original intacto.
             </p>
           </div>
@@ -498,16 +498,16 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
             ))}
           </div>
 
-          <div className="lg:col-span-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-black/[0.03] dark:bg-white/[0.03] px-4 py-2.5 text-xs flex items-center justify-between gap-2">
+          <div className="lg:col-span-5 rounded-xl border border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)] px-4 py-2.5 text-xs flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="font-display font-bold uppercase tracking-wider text-neutral-500">
+              <p className="font-display font-bold uppercase tracking-wider text-[var(--editorial-muted)]">
                 {isPreviewing ? 'Previsualizando ahora' : 'Tema según configuración actual'}
               </p>
               <p className="font-display text-sm font-extrabold uppercase truncate">
                 {isPreviewing ? `${activeTheme.emoji} ${activeTheme.name}` : `${draftResolved.theme.emoji} ${draftResolved.theme.name}`}
               </p>
               {themeSource === 'auto' && matchedSchedule && (
-                <p className="text-[11px] text-neutral-500 truncate">
+                <p className="text-[11px] text-[var(--editorial-muted)] truncate">
                   Regla calendario: {matchedSchedule.label || matchedSchedule.themeId}
                 </p>
               )}
@@ -516,7 +516,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
               <button
                 type="button"
                 onClick={() => setPreviewThemeId(null)}
-                className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-neutral-400 dark:border-neutral-600 text-[11px] font-display font-bold uppercase cursor-pointer shrink-0"
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-[var(--editorial-border)] text-[11px] font-display font-bold uppercase cursor-pointer shrink-0 hover:border-[var(--editorial-primary)]"
               >
                 <EyeOff className="w-3 h-3" aria-hidden="true" />
                 <span>Salir vista previa</span>
@@ -533,7 +533,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
             <h3 className="font-display text-xl font-extrabold uppercase tracking-tight">
               Catálogo de temas ({allThemes.length})
             </h3>
-            <p className="text-xs text-neutral-600 dark:text-neutral-400">
+            <p className="text-xs text-[var(--editorial-muted)]">
               Previsualiza cualquier tema antes de guardarlo o duplica uno existente para crear tu propia paleta personalizada ({customThemes.length}/10).
             </p>
           </div>
@@ -544,10 +544,10 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
                 key={cat.id}
                 type="button"
                 onClick={() => setCategoryFilter(cat.id)}
-                className={`px-3 py-1 rounded-full border cursor-pointer transition-colors ${
+                className={`px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${
                   categoryFilter === cat.id
                     ? 'bg-[var(--editorial-primary)] text-white border-[var(--editorial-primary)]'
-                    : 'border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white'
+                    : 'bg-[var(--editorial-surface)] border-[var(--editorial-border)] hover:border-[var(--editorial-ink)]'
                 }`}
               >
                 {cat.label}
@@ -573,7 +573,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
                 className={`rounded-2xl border p-4 flex flex-col justify-between gap-4 transition-all ${
                   isSelected
                     ? 'border-[var(--editorial-primary)] ring-2 ring-[var(--editorial-primary)]/25 bg-[var(--editorial-surface)] shadow-md'
-                    : 'border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)]'
+                    : 'border-[var(--editorial-border)] bg-[var(--editorial-surface)] hover:border-[var(--editorial-muted)]'
                 }`}
               >
                 <div className="space-y-3">
@@ -897,8 +897,8 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
 
       {/* Controles de intensidad, capas y banner de saludo */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <section className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-5">
-          <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+        <section className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-5">
+          <div className="flex items-center gap-2 border-b border-[var(--editorial-border)] pb-3">
             <Layers className="w-4 h-4 text-[var(--editorial-primary)]" aria-hidden="true" />
             <h3 className="font-display text-lg font-extrabold uppercase tracking-tight">
               Intensidad y capas decorativas
@@ -1002,8 +1002,8 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
         </section>
 
         {/* Banner de saludo editorial */}
-        <section className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-4">
-          <div className="flex items-center justify-between gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+        <section className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-4">
+          <div className="flex items-center justify-between gap-2 border-b border-[var(--editorial-border)] pb-3">
             <div className="flex items-center gap-2">
               <Megaphone className="w-4 h-4 text-[var(--editorial-primary)]" aria-hidden="true" />
               <h3 className="font-display text-lg font-extrabold uppercase tracking-tight">
@@ -1140,14 +1140,14 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ cfgDraft, setCfgDraft, onS
       </div>
 
       {/* Calendario editorial editable */}
-      <section className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+      <section className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--editorial-border)] pb-3">
           <div>
             <h3 className="font-display text-xl font-extrabold uppercase tracking-tight flex items-center gap-2">
               <CalendarClock className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
               <span>Calendario automático de fiestas y eventos ({themeSchedule.length}/30)</span>
             </h3>
-            <p className="text-xs text-neutral-500 mt-0.5">
+            <p className="text-xs text-[var(--editorial-muted)] mt-0.5">
               Usa formato <code className="font-mono">MM-DD</code> (zona horaria Colombia). Si dos rangos coinciden, gana la prioridad más alta.
             </p>
           </div>

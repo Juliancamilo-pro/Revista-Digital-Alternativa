@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Camera,
   Headphones,
+  Newspaper,
   Pause,
   Play,
   TrendingUp,
@@ -22,6 +23,7 @@ import { EditorialHomeSkeleton } from './EditorialSkeletons';
 import { TricolorHairline } from './TolimaAccents';
 import { ThemeCornerOrnaments, ThemeHeadingIcon } from './themes/ThemeOrnaments';
 import { ThemeSectionDivider } from './themes/ThemeSectionDivider';
+import { EditorialButton, EmptyState, FilterChip, SectionHeader } from './ui/EditorialPrimitives';
 import { VerifiedBadge } from './VerifiedBadge';
 
 export const HomePage: React.FC = () => {
@@ -201,11 +203,11 @@ export const HomePage: React.FC = () => {
     return <EditorialHomeSkeleton />;
   }
 
-  // Portada limpia "Muy pronto" cuando no hay contenido real publicado
+  // Portada limpia cuando no hay contenido publicado todavía
   if (!loading && publishedPosts.length === 0) {
     return (
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-24 animate-fade-up">
-        <section className="relative overflow-hidden rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-gradient-to-br from-[#141414] via-[#1C0B0B] to-[#0D0D0D] text-[#F4F1EA] px-6 py-16 sm:px-14 sm:py-24 shadow-2xl">
+        <section className="relative overflow-hidden rounded-3xl border border-[var(--editorial-border)] bg-gradient-to-br from-[#141414] via-[#1C0B0B] to-[#0D0D0D] text-[#F4F1EA] px-6 py-16 sm:px-14 sm:py-24 shadow-2xl">
           <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[var(--editorial-primary)]/20 blur-3xl pointer-events-none" />
           <div className="relative max-w-2xl space-y-6">
             <p className="font-display text-xs font-bold uppercase tracking-widest text-[#FCA5A5]">
@@ -223,21 +225,18 @@ export const HomePage: React.FC = () => {
               </p>
             )}
             <div className="pt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => navigate('/como-trabajamos')}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-sm"
-              >
+              <EditorialButton size="lg" onClick={() => navigate('/como-trabajamos')}>
                 <span>Cómo trabajamos</span>
                 <ArrowRight className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
+              </EditorialButton>
+              <EditorialButton
+                size="lg"
+                variant="secondary"
                 onClick={() => navigate('/unete')}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-white/25 hover:bg-white hover:text-[#111111] text-white font-display text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                className="!bg-transparent !text-white !border-white/30 hover:!bg-white hover:!text-[#111111]"
               >
                 <span>{joinBannerCta}</span>
-              </button>
+              </EditorialButton>
             </div>
           </div>
         </section>
@@ -283,12 +282,20 @@ export const HomePage: React.FC = () => {
           heroPost.authorVerified,
           heroPost.authorName
         );
+        const heroKindLabel = getEditorialKindLabel(heroPost.editorialKind);
+        const showHeroKind =
+          Boolean(heroKindLabel) &&
+          heroKindLabel.trim().toLowerCase() !== (heroPost.categoryName || '').trim().toLowerCase();
 
         return (
           <section key={section.id} className="space-y-6 animate-fade-up">
-            {/* Retícula 12 columnas: 8/12 apertura principal 16:9 + 4/12 columna lateral con las 3 notas siguientes */}
+            {/* Retícula 12 columnas: 8/12 apertura principal 16:9 + 4/12 columna lateral */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-              <article className={`relative lg:col-span-8 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden shadow-sm hover:shadow-xl transition-shadow group flex flex-col ${showHoverEffects ? 'theme-card-hover-glow' : ''}`}>
+              <article
+                className={`relative lg:col-span-8 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] overflow-hidden shadow-xs hover:shadow-xl transition-all duration-300 group flex flex-col ${
+                  showHoverEffects ? 'theme-card-hover-glow' : ''
+                }`}
+              >
                 <ThemeCornerOrnaments variant="hero" />
                 <a
                   href={`/articulo/${heroPost.slug}`}
@@ -302,40 +309,52 @@ export const HomePage: React.FC = () => {
                     src={heroPost.coverImage}
                     alt={heroPost.coverAlt || heroPost.title}
                     fallbackTitle={heroPost.title}
+                    fallbackCategory={heroPost.categoryName}
                     width={1280}
                     height={720}
                     priority
                     sensitive={heroPost.sensitiveContent}
-                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
                   />
                   {heroPost.coverCredit && (
-                    <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded bg-black/70 text-[11px] text-white font-display tracking-wide">
+                    <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-xs text-[11px] text-white font-display tracking-wide">
                       {heroPost.coverCredit}
                     </span>
                   )}
                 </a>
 
-                <div className="p-5 sm:p-7 flex-1 flex flex-col justify-between gap-4">
+                <div className="p-5 sm:p-8 flex-1 flex flex-col justify-between gap-5">
                   <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest">
-                      <span className="px-2.5 py-0.5 rounded bg-[var(--editorial-primary)] text-white">
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-[0.12em]">
+                      <a
+                        href={`/categoria/${heroPost.categorySlug}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(`/categoria/${heroPost.categorySlug}`);
+                        }}
+                        className="text-[var(--editorial-primary)] hover:underline"
+                      >
                         {heroPost.categoryName}
-                      </span>
-                      <span aria-hidden="true" className="text-neutral-400">·</span>
-                      <span className="text-neutral-700 dark:text-neutral-300">
-                        {getEditorialKindLabel(heroPost.editorialKind)}
-                      </span>
+                      </a>
+                      {showHeroKind && (
+                        <>
+                          <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                            ·
+                          </span>
+                          <span className="text-[var(--editorial-muted)]">{heroKindLabel}</span>
+                        </>
+                      )}
                       {heroPost.seriesTitle && (
                         <>
-                          <span aria-hidden="true" className="text-neutral-400">·</span>
-                          <span className="text-neutral-600 dark:text-neutral-400">
-                            {heroPost.seriesTitle}
+                          <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                            ·
                           </span>
+                          <span className="text-[var(--editorial-ink)]">{heroPost.seriesTitle}</span>
                         </>
                       )}
                     </div>
 
-                    <h1 className="font-display text-3xl sm:text-4xl lg:text-[2.65rem] font-extrabold leading-[1.04] tracking-tight headline-balance text-[#111111] dark:text-[#F4F1EA]">
+                    <h1 className="font-display text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold leading-[1.04] tracking-tight headline-balance text-[var(--editorial-ink)]">
                       <a
                         href={`/articulo/${heroPost.slug}`}
                         onClick={(e) => {
@@ -349,21 +368,21 @@ export const HomePage: React.FC = () => {
                     </h1>
 
                     {heroPost.subtitle && (
-                      <p className="text-base sm:text-lg text-neutral-700 dark:text-neutral-300 leading-relaxed font-editorial line-clamp-3">
+                      <p className="text-base sm:text-lg text-[var(--editorial-muted)] leading-relaxed font-editorial line-clamp-3">
                         {heroPost.subtitle}
                       </p>
                     )}
                   </div>
 
-                  <div className="pt-3 border-t border-neutral-200 dark:border-neutral-800 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+                  <div className="pt-4 border-t border-[var(--editorial-border)] flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--editorial-muted)]">
                       <a
                         href={`/colaborador/${heroAuthorTargetId}`}
                         onClick={(e) => {
                           e.preventDefault();
                           navigate(`/colaborador/${heroAuthorTargetId}`);
                         }}
-                        className="inline-flex items-center gap-1.5 font-bold text-neutral-900 dark:text-white hover:text-[var(--editorial-primary)] transition-colors"
+                        className="inline-flex items-center gap-1.5 font-bold text-[var(--editorial-ink)] hover:text-[var(--editorial-primary)] transition-colors"
                       >
                         <span>{heroPost.authorName}</span>
                         {heroVerified && <VerifiedBadge size="xs" />}
@@ -371,67 +390,68 @@ export const HomePage: React.FC = () => {
                       <span aria-hidden="true">·</span>
                       <span>{formatDateEs(heroPost.publishedAt || heroPost.createdAt)}</span>
                       <span aria-hidden="true">·</span>
-                      <span className="font-tabular">{heroPost.readTimeMinutes} min</span>
+                      <span className="font-tabular">{heroPost.readTimeMinutes} min de lectura</span>
                     </div>
 
-                    <button
-                      type="button"
+                    <EditorialButton
+                      variant="ink"
+                      size="md"
                       onClick={() => navigate(`/articulo/${heroPost.slug}`)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#111111] dark:bg-white text-white dark:text-[#111111] hover:bg-[var(--editorial-primary)] dark:hover:bg-[var(--editorial-primary)] dark:hover:text-white font-display text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
                     >
                       <span>{section.ctaLabel || 'Leer completo'}</span>
                       <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                    </button>
+                    </EditorialButton>
                   </div>
                 </div>
               </article>
 
-              {/* Columna lateral 4/12: 3 notas compactas + invitación editorial */}
+              {/* Columna lateral 4/12 */}
               <aside className="lg:col-span-4 flex flex-col justify-between gap-5">
-                <div className="flex-1 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 flex flex-col shadow-sm">
+                <div className="flex-1 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 flex flex-col shadow-xs">
                   <div className="flex items-center justify-between border-b-2 border-[var(--editorial-primary)] pb-2.5 mb-2">
                     <h2 className="font-display text-sm font-extrabold uppercase tracking-widest text-[var(--editorial-primary)] flex items-center gap-1.5">
                       <ThemeHeadingIcon />
                       <span>{dailyStripLabel}</span>
                     </h2>
-                    <span className="font-tabular text-[11px] text-neutral-500 uppercase">
+                    <span className="font-tabular text-[11px] text-[var(--editorial-muted)] uppercase">
                       {railPosts.length} notas
                     </span>
                   </div>
 
                   {railPosts.length > 0 ? (
-                    <div className="divide-y divide-neutral-200 dark:divide-neutral-800 flex-1 flex flex-col justify-between">
-                      {railPosts.map((p) => (
-                        <ArticleCard key={p.id} post={p} variant="compact" />
+                    <div className="divide-y divide-[var(--editorial-border)] flex-1 flex flex-col justify-between">
+                      {railPosts.map((p, idx) => (
+                        <ArticleCard
+                          key={p.id}
+                          post={p}
+                          variant="compact"
+                          indexLabel={`0${idx + 1}`}
+                        />
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-neutral-600 dark:text-neutral-400 py-6 font-editorial">
+                    <p className="text-sm text-[var(--editorial-muted)] py-6 font-editorial">
                       Más entregas editoriales en preparación.
                     </p>
                   )}
                 </div>
 
-                {/* Tarjeta compacta "Únete como colaborador" */}
-                <div className="rounded-2xl border border-neutral-800 bg-gradient-to-br from-[#141414] to-[#280D0D] text-white p-5 space-y-3 shadow-sm">
-                  <p className="font-display text-[11px] font-bold uppercase tracking-widest text-[#FCA5A5]">
+                {/* Bloque de vinculación editable */}
+                <div className="rounded-2xl border border-neutral-800 bg-gradient-to-br from-[#141414] via-[#1B1212] to-[#2C0D0D] text-white p-5 sm:p-6 space-y-3 shadow-sm">
+                  <p className="font-display text-[11px] font-bold uppercase tracking-[0.14em] text-[#FCA5A5]">
                     {joinBannerKicker}
                   </p>
-                  <h3 className="font-display text-xl font-extrabold uppercase leading-tight">
+                  <h3 className="font-display text-xl sm:text-2xl font-extrabold uppercase leading-tight">
                     {joinBannerTitle}
                   </h3>
                   <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed line-clamp-2">
                     {joinBannerSubtitle}
                   </p>
-                  <div className="pt-1 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => navigate('/unete')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] font-display text-xs font-bold uppercase tracking-wider text-white cursor-pointer transition-colors"
-                    >
+                  <div className="pt-1">
+                    <EditorialButton variant="primary" size="md" onClick={() => navigate('/unete')}>
                       <span>{joinBannerCta}</span>
                       <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                    </button>
+                    </EditorialButton>
                   </div>
                 </div>
               </aside>
@@ -442,37 +462,57 @@ export const HomePage: React.FC = () => {
 
       case 'breaking': {
         if (breakingPosts.length === 0) return null;
+        const shouldMarquee = breakingPosts.length >= 3 && !isDataSaverActive;
         return (
           <section
             key={section.id}
             aria-label={section.title || 'Última hora'}
-            className="h-10 rounded-xl border border-[var(--editorial-primary)]/40 bg-[#111111] text-white overflow-hidden flex items-center shadow-sm"
+            className="min-h-10 rounded-xl border border-[var(--editorial-primary)]/40 bg-[#141414] text-white overflow-hidden flex items-center shadow-xs"
           >
-            <span className="h-full inline-flex items-center gap-1.5 px-3.5 sm:px-4 bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest shrink-0">
+            <span className="self-stretch inline-flex items-center gap-1.5 px-3.5 sm:px-4 bg-[var(--editorial-primary)] text-white font-display text-xs font-extrabold uppercase tracking-widest shrink-0">
               <Zap className="w-3.5 h-3.5" aria-hidden="true" />
               <span>{section.title || 'Última hora'}</span>
             </span>
-            <div className="flex-1 overflow-hidden">
-              <div className="animate-marquee-ticker py-2">
-                {[...breakingPosts, ...breakingPosts].map((post, idx) => (
+            {shouldMarquee ? (
+              <div className="flex-1 overflow-hidden">
+                <div className="animate-marquee-ticker py-2">
+                  {[...breakingPosts, ...breakingPosts].map((post, idx) => (
+                    <a
+                      key={`${post.id}_${idx}`}
+                      href={`/articulo/${post.slug}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(`/articulo/${post.slug}`);
+                      }}
+                      className="inline-flex items-center gap-2.5 px-5 text-xs sm:text-sm font-display font-semibold hover:text-[#FCA5A5] transition-colors whitespace-nowrap"
+                    >
+                      <span className="text-[#FCA5A5] uppercase font-bold">{post.categoryName}</span>
+                      <span>{post.title}</span>
+                      <span aria-hidden="true" className="text-neutral-600">
+                        ·
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2 overflow-x-auto">
+                {breakingPosts.map((post) => (
                   <a
-                    key={`${post.id}_${idx}`}
+                    key={post.id}
                     href={`/articulo/${post.slug}`}
                     onClick={(e) => {
                       e.preventDefault();
                       navigate(`/articulo/${post.slug}`);
                     }}
-                    className="inline-flex items-center gap-2.5 px-5 text-xs sm:text-sm font-display font-semibold hover:text-[#FCA5A5] transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-2 text-xs sm:text-sm font-display font-semibold hover:text-[#FCA5A5] transition-colors whitespace-nowrap"
                   >
-                    <span className="text-[#FCA5A5] uppercase font-bold">
-                      {post.categoryName}
-                    </span>
+                    <span className="text-[#FCA5A5] uppercase font-bold">{post.categoryName}</span>
                     <span>{post.title}</span>
-                    <span aria-hidden="true" className="text-neutral-600">·</span>
                   </a>
                 ))}
               </div>
-            </div>
+            )}
           </section>
         );
       }
@@ -480,6 +520,12 @@ export const HomePage: React.FC = () => {
       case 'featured': {
         if (featuredPosts.length === 0) return null;
         const [firstFeatured, ...restFeatured] = featuredPosts;
+        const leadColClass =
+          restFeatured.length === 0
+            ? 'md:col-span-2 lg:col-span-12'
+            : restFeatured.length === 1
+            ? 'md:col-span-1 lg:col-span-7'
+            : 'md:col-span-2 lg:col-span-6';
         return (
           <motion.section
             key={section.id}
@@ -487,31 +533,26 @@ export const HomePage: React.FC = () => {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.08 }}
             transition={{ duration: 0.28 }}
-            className="space-y-5 editorial-rule-top pt-8"
+            className="space-y-6 editorial-rule-top pt-8"
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <ThemeHeadingIcon />
-                  <span>{section.title}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-            </div>
+            <SectionHeader
+              kicker="Selección de portada"
+              title={section.title || 'Destacados'}
+              subtitle={section.subtitle}
+              ornament={<ThemeHeadingIcon />}
+            />
 
-            {/* 1 grande (6/12) + 2 medianas (3/12 cada una) en escritorio */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6 items-stretch">
               {firstFeatured && (
-                <div className="md:col-span-2 lg:col-span-6">
+                <div className={leadColClass}>
                   <ArticleCard post={firstFeatured} variant="featured_lead" />
                 </div>
               )}
               {restFeatured.slice(0, 2).map((post) => (
-                <div key={post.id} className="lg:col-span-3">
+                <div
+                  key={post.id}
+                  className={restFeatured.length === 1 ? 'lg:col-span-5' : 'lg:col-span-3'}
+                >
                   <ArticleCard post={post} />
                 </div>
               ))}
@@ -526,9 +567,12 @@ export const HomePage: React.FC = () => {
         return (
           <section key={section.id} className="editorial-rule-top pt-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-              {/* Lectura principal destacada (7/12) */}
               {topRead && (
-                <article className="lg:col-span-7 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden shadow-sm flex flex-col sm:flex-row">
+                <article
+                  className={`lg:col-span-7 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] overflow-hidden shadow-xs hover:shadow-lg transition-shadow flex flex-col sm:flex-row group ${
+                    showHoverEffects ? 'theme-card-hover-glow' : ''
+                  }`}
+                >
                   <a
                     href={`/articulo/${topRead.slug}`}
                     onClick={(e) => {
@@ -541,20 +585,21 @@ export const HomePage: React.FC = () => {
                       src={topRead.coverImage}
                       alt={topRead.coverAlt || topRead.title}
                       fallbackTitle={topRead.title}
+                      fallbackCategory={topRead.categoryName}
                       width={700}
                       height={525}
-                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
                     />
                   </a>
                   <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between gap-3">
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       <div className="flex items-center gap-2 text-xs font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                        <span className="font-tabular px-2 py-0.5 rounded bg-[var(--editorial-primary)]/10">
+                        <span className="font-tabular px-2 py-0.5 rounded-full bg-[var(--editorial-primary)]/10">
                           #01 Más leída
                         </span>
                         <span>{topRead.categoryName}</span>
                       </div>
-                      <h3 className="font-display text-2xl sm:text-[1.7rem] font-extrabold leading-tight headline-balance">
+                      <h3 className="font-display text-2xl sm:text-[1.75rem] font-extrabold leading-tight headline-balance text-[var(--editorial-ink)]">
                         <a
                           href={`/articulo/${topRead.slug}`}
                           onClick={(e) => {
@@ -567,13 +612,13 @@ export const HomePage: React.FC = () => {
                         </a>
                       </h3>
                       {topRead.subtitle && (
-                        <p className="text-sm text-neutral-700 dark:text-neutral-300 line-clamp-3 font-editorial">
+                        <p className="text-sm text-[var(--editorial-muted)] line-clamp-3 font-editorial">
                           {topRead.subtitle}
                         </p>
                       )}
                     </div>
-                    <div className="pt-3 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-400">
-                      <span>{topRead.authorName}</span>
+                    <div className="pt-3 border-t border-[var(--editorial-border)] flex items-center justify-between text-xs text-[var(--editorial-muted)]">
+                      <span className="font-semibold text-[var(--editorial-ink)]">{topRead.authorName}</span>
                       <span className="font-tabular font-semibold">
                         {(topRead.viewCount || 0).toLocaleString('es-CO')} lecturas
                       </span>
@@ -582,21 +627,22 @@ export const HomePage: React.FC = () => {
                 </article>
               )}
 
-              {/* Lista numerada compacta en columna lateral (5/12) */}
-              <aside className="lg:col-span-5 rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 sm:p-6 shadow-sm flex flex-col">
+              <aside className="lg:col-span-5 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 sm:p-6 shadow-xs flex flex-col">
                 <div className="flex items-center justify-between border-b-2 border-[var(--editorial-primary)] pb-2.5 mb-2">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-[var(--editorial-primary)]" aria-hidden="true" />
-                    <h2 className="font-display text-lg font-extrabold uppercase tracking-tight flex items-center gap-1.5">
+                    <h2 className="font-display text-lg font-extrabold uppercase tracking-tight flex items-center gap-1.5 text-[var(--editorial-ink)]">
                       <span>{section.title}</span>
                       <ThemeHeadingIcon />
                     </h2>
                   </div>
                   {section.subtitle && (
-                    <span className="text-[11px] text-neutral-500 hidden sm:inline">{section.subtitle}</span>
+                    <span className="text-[11px] text-[var(--editorial-muted)] hidden sm:inline">
+                      {section.subtitle}
+                    </span>
                   )}
                 </div>
-                <ol className="divide-y divide-neutral-200 dark:divide-neutral-800 flex-1 flex flex-col justify-between">
+                <ol className="divide-y divide-[var(--editorial-border)] flex-1 flex flex-col justify-between">
                   {(otherRead.length > 0 ? otherRead : mostReadPosts).map((post, idx) => {
                     const rank = otherRead.length > 0 ? idx + 2 : idx + 1;
                     return (
@@ -605,10 +651,10 @@ export const HomePage: React.FC = () => {
                           0{rank}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-display font-bold uppercase tracking-wider text-neutral-500">
+                          <p className="text-[11px] font-display font-bold uppercase tracking-wider text-[var(--editorial-muted)]">
                             {post.categoryName} · {(post.viewCount || 0).toLocaleString('es-CO')} lecturas
                           </p>
-                          <h3 className="font-display text-base sm:text-[17px] font-bold leading-snug line-clamp-2 mt-0.5">
+                          <h3 className="font-display text-base sm:text-[17px] font-bold leading-snug line-clamp-2 mt-0.5 text-[var(--editorial-ink)]">
                             <a
                               href={`/articulo/${post.slug}`}
                               onClick={(e) => {
@@ -634,30 +680,24 @@ export const HomePage: React.FC = () => {
       case 'opinion': {
         if (opinionPosts.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
-            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <ThemeHeadingIcon />
-                  <span>{section.title}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-              <a
-                href="/categoria/opinion"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/categoria/opinion');
-                }}
-                className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
-              >
-                {section.ctaLabel || 'Ver todas las columnas'}
-              </a>
-            </div>
+          <section key={section.id} className="space-y-6 editorial-rule-top pt-8">
+            <SectionHeader
+              kicker="Voces y análisis"
+              title={section.title || 'Opinión'}
+              subtitle={section.subtitle}
+              ornament={<ThemeHeadingIcon />}
+              action={
+                <EditorialButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/categoria/opinion')}
+                  className="text-[var(--editorial-primary)]"
+                >
+                  <span>{section.ctaLabel || 'Ver todas las columnas'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </EditorialButton>
+              }
+            />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
               {opinionPosts.map((post) => (
                 <ArticleCard key={post.id} post={post} variant="opinion" />
@@ -670,33 +710,26 @@ export const HomePage: React.FC = () => {
       case 'series': {
         if (seriesList.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
-            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <ThemeHeadingIcon />
-                  <span>{section.title}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-            </div>
-            {/* Carrusel horizontal con tarjetas de ancho fijo */}
+          <section key={section.id} className="space-y-6 editorial-rule-top pt-8">
+            <SectionHeader
+              kicker="Investigación por entregas"
+              title={section.title || 'Especiales'}
+              subtitle={section.subtitle}
+              ornament={<ThemeHeadingIcon />}
+            />
             <div className="flex gap-5 overflow-x-auto pb-3 snap-x snap-mandatory">
               {seriesList.map((ser) => (
                 <article
                   key={ser.id}
                   onClick={() => navigate(`/serie/${ser.slug}`)}
-                  className="w-[290px] sm:w-[320px] shrink-0 snap-start group cursor-pointer rounded-2xl border border-neutral-800 bg-[#111111] text-white overflow-hidden shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex flex-col"
+                  className="w-[290px] sm:w-[320px] shrink-0 snap-start group cursor-pointer rounded-2xl border border-neutral-800 bg-[#141414] text-white overflow-hidden shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex flex-col"
                 >
                   <div className="aspect-[16/10] overflow-hidden shrink-0">
                     <EditorialImage
                       src={ser.coverImage}
                       alt={ser.title}
                       fallbackTitle={ser.title}
+                      fallbackCategory="Especial seriado"
                       width={640}
                       height={400}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -730,32 +763,25 @@ export const HomePage: React.FC = () => {
         if (galleryPosts.length === 0) return null;
         const [leadGallery, ...sideGalleries] = galleryPosts;
         return (
-          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <Camera className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                  <span>{section.title}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-              <a
-                href="/categoria/fotografia"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/categoria/fotografia');
-                }}
-                className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
-              >
-                {section.ctaLabel || 'Más fotografía'}
-              </a>
-            </div>
+          <section key={section.id} className="space-y-6 editorial-rule-top pt-8">
+            <SectionHeader
+              kicker="Mirada documental"
+              title={section.title || 'Fotoperiodismo'}
+              subtitle={section.subtitle}
+              ornament={<Camera className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />}
+              action={
+                <EditorialButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/categoria/fotografia')}
+                  className="text-[var(--editorial-primary)]"
+                >
+                  <span>{section.ctaLabel || 'Más fotografía'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </EditorialButton>
+              }
+            />
 
-            {/* Mosaico editorial */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
               {leadGallery && (
                 <div className={sideGalleries.length > 0 ? 'md:col-span-7' : 'md:col-span-12'}>
@@ -765,33 +791,7 @@ export const HomePage: React.FC = () => {
               {sideGalleries.length > 0 && (
                 <div className="md:col-span-5 grid grid-cols-1 gap-5">
                   {sideGalleries.map((post) => (
-                    <article
-                      key={post.id}
-                      onClick={() => navigate(`/articulo/${post.slug}`)}
-                      className="group cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden grid grid-cols-12 shadow-sm hover:shadow-md transition-shadow"
-                    >
-                      <div className="col-span-5 aspect-[4/3] bg-neutral-900 overflow-hidden">
-                        <EditorialImage
-                          src={post.coverImage}
-                          alt={post.coverAlt || post.title}
-                          fallbackTitle={post.title}
-                          width={400}
-                          height={300}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                      </div>
-                      <div className="col-span-7 p-4 flex flex-col justify-between">
-                        <div>
-                          <p className="text-[10px] font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-                            {post.galleryItems?.length ? `${post.galleryItems.length} fotos` : 'Fotorreportaje'}
-                          </p>
-                          <h3 className="mt-1 font-display text-lg font-bold leading-tight line-clamp-2 group-hover:text-[var(--editorial-primary)]">
-                            {post.title}
-                          </h3>
-                        </div>
-                        <p className="text-xs text-neutral-500 mt-2">{post.authorName}</p>
-                      </div>
-                    </article>
+                    <ArticleCard key={post.id} post={post} variant="horizontal" />
                   ))}
                 </div>
               )}
@@ -803,30 +803,24 @@ export const HomePage: React.FC = () => {
       case 'videos': {
         if (videoPosts.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <Play className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                  <span>{section.title}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-              <a
-                href="/categoria/video"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/categoria/video');
-                }}
-                className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
-              >
-                {section.ctaLabel || 'Más videos'}
-              </a>
-            </div>
+          <section key={section.id} className="space-y-6 editorial-rule-top pt-8">
+            <SectionHeader
+              kicker="Audiovisual"
+              title={section.title || 'Video'}
+              subtitle={section.subtitle}
+              ornament={<Play className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />}
+              action={
+                <EditorialButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/categoria/video')}
+                  className="text-[var(--editorial-primary)]"
+                >
+                  <span>{section.ctaLabel || 'Más videos'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </EditorialButton>
+              }
+            />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
               {videoPosts.map((post) => (
                 <ArticleCard key={post.id} post={post} variant="video" />
@@ -839,33 +833,26 @@ export const HomePage: React.FC = () => {
       case 'audio': {
         if (audioPosts.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <Headphones className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                  <span>{section.title}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-              <a
-                href="/categoria/audio-y-podcast"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/categoria/audio-y-podcast');
-                }}
-                className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline"
-              >
-                {section.ctaLabel || 'Todos los pódcasts'}
-              </a>
-            </div>
+          <section key={section.id} className="space-y-6 editorial-rule-top pt-8">
+            <SectionHeader
+              kicker="Periodismo sonoro"
+              title={section.title || 'Audio y Pódcast'}
+              subtitle={section.subtitle}
+              ornament={<Headphones className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />}
+              action={
+                <EditorialButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/categoria/audio-y-podcast')}
+                  className="text-[var(--editorial-primary)]"
+                >
+                  <span>{section.ctaLabel || 'Todos los pódcasts'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </EditorialButton>
+              }
+            />
 
-            {/* Lista compacta con reproductor integrado */}
-            <div className="rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] divide-y divide-neutral-200 dark:divide-neutral-800 shadow-sm">
+            <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] divide-y divide-[var(--editorial-border)] shadow-xs overflow-hidden">
               {audioPosts.map((post) => {
                 const mediaSrc = sanitizeExternalUrl(post.mediaUrl || '');
                 const isActiveTrack = currentTrack?.postId === post.id;
@@ -873,7 +860,11 @@ export const HomePage: React.FC = () => {
                 return (
                   <article
                     key={post.id}
-                    className="p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-neutral-100/60 dark:hover:bg-neutral-900/40 transition-colors"
+                    className={`p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
+                      isActiveTrack
+                        ? 'bg-[var(--editorial-primary)]/[0.06]'
+                        : 'hover:bg-[var(--editorial-surface-subtle)]'
+                    }`}
                   >
                     <div className="flex items-center gap-4 min-w-0 flex-1">
                       <button
@@ -900,7 +891,7 @@ export const HomePage: React.FC = () => {
                         aria-label={isThisPlaying ? `Pausar ${post.title}` : `Reproducir ${post.title}`}
                         className={`w-11 h-11 rounded-full shrink-0 flex items-center justify-center cursor-pointer transition-colors ${
                           isThisPlaying
-                            ? 'bg-[#111111] dark:bg-white text-white dark:text-black'
+                            ? 'bg-[var(--editorial-ink)] text-[var(--editorial-paper)]'
                             : 'bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white'
                         }`}
                       >
@@ -914,22 +905,41 @@ export const HomePage: React.FC = () => {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2 text-[11px] font-display font-bold uppercase tracking-wider text-[var(--editorial-primary)]">
                           <span>{post.categoryName}</span>
+                          {post.seasonNumber && (
+                            <>
+                              <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                                ·
+                              </span>
+                              <span className="font-tabular">T{post.seasonNumber}</span>
+                            </>
+                          )}
                           {post.episodeNumber && (
                             <>
-                              <span aria-hidden="true" className="text-neutral-400">·</span>
+                              <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                                ·
+                              </span>
                               <span className="font-tabular">Ep. {post.episodeNumber}</span>
                             </>
                           )}
                           {post.mediaDurationLabel && (
                             <>
-                              <span aria-hidden="true" className="text-neutral-400">·</span>
-                              <span className="font-tabular text-neutral-600 dark:text-neutral-400">
+                              <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                                ·
+                              </span>
+                              <span className="font-tabular text-[var(--editorial-muted)]">
                                 {post.mediaDurationLabel}
                               </span>
                             </>
                           )}
+                          {isThisPlaying && (
+                            <span className="inline-flex items-end gap-0.5 h-3 ml-1" aria-label="Reproduciendo">
+                              <span className="w-0.5 h-2.5 bg-[var(--editorial-primary)] rounded-full" />
+                              <span className="w-0.5 h-3 bg-[var(--editorial-primary)] rounded-full" />
+                              <span className="w-0.5 h-1.5 bg-[var(--editorial-primary)] rounded-full" />
+                            </span>
+                          )}
                         </div>
-                        <h3 className="font-display text-lg sm:text-xl font-bold leading-snug line-clamp-1">
+                        <h3 className="font-display text-lg sm:text-xl font-bold leading-snug line-clamp-1 text-[var(--editorial-ink)]">
                           <a
                             href={`/articulo/${post.slug}`}
                             onClick={(e) => {
@@ -941,20 +951,21 @@ export const HomePage: React.FC = () => {
                             {post.title}
                           </a>
                         </h3>
-                        <p className="text-xs text-neutral-600 dark:text-neutral-400 truncate">
+                        <p className="text-xs text-[var(--editorial-muted)] truncate">
                           {post.authorName} · {formatDateEs(post.publishedAt || post.createdAt)}
                         </p>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
+                    <EditorialButton
+                      variant="secondary"
+                      size="sm"
                       onClick={() => navigate(`/articulo/${post.slug}`)}
-                      className="self-start sm:self-center shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-[var(--editorial-primary)] font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                      className="self-start sm:self-center shrink-0"
                     >
                       <span>Escuchar nota</span>
                       <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                    </button>
+                    </EditorialButton>
                   </article>
                 );
               })}
@@ -966,35 +977,31 @@ export const HomePage: React.FC = () => {
       case 'collaborators': {
         if (directoryCards.length === 0) return null;
         return (
-          <section key={section.id} className="space-y-5 editorial-rule-top pt-8">
-            <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-neutral-300 dark:border-neutral-800 pb-2.5">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <Users className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
-                  <span>{section.title || 'Conozcan a nuestros colaboradores'}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate('/colaboradores')}
-                className="inline-flex items-center gap-1.5 font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] hover:underline cursor-pointer"
-              >
-                <span>{section.ctaLabel || 'Ver directorio completo'}</span>
-                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
-            </div>
-            {/* Carrusel horizontal con tarjetas de ancho fijo */}
+          <section key={section.id} className="space-y-6 editorial-rule-top pt-8">
+            <SectionHeader
+              kicker="Red colaborativa"
+              title={section.title || 'Conozcan a nuestros colaboradores'}
+              subtitle={section.subtitle}
+              ornament={<Users className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />}
+              action={
+                <EditorialButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/colaboradores')}
+                  className="text-[var(--editorial-primary)]"
+                >
+                  <span>{section.ctaLabel || 'Ver directorio completo'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </EditorialButton>
+              }
+            />
+
             <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
               {directoryCards.map((item) => (
                 <article
                   key={item.id}
                   onClick={() => navigate(`/colaborador/${item.id}`)}
-                  className="w-[260px] sm:w-[280px] shrink-0 snap-start cursor-pointer rounded-2xl border border-neutral-300/80 dark:border-neutral-800 bg-[var(--editorial-surface)] p-5 flex items-start gap-3.5 hover:shadow-md transition-shadow"
+                  className="w-[260px] sm:w-[285px] shrink-0 snap-start cursor-pointer rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 flex items-start gap-3.5 hover:shadow-lg hover:border-[var(--editorial-primary)]/45 transition-all"
                 >
                   <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-900 text-white shrink-0 flex items-center justify-center font-display text-lg font-extrabold uppercase">
                     {item.avatarUrl ? (
@@ -1002,6 +1009,7 @@ export const HomePage: React.FC = () => {
                         src={item.avatarUrl}
                         alt={item.name}
                         fallbackTitle={item.name}
+                        fallbackCategory={item.subtitle}
                         width={96}
                         height={96}
                         allowInDataSaver
@@ -1014,12 +1022,12 @@ export const HomePage: React.FC = () => {
                     <p className="text-[10px] font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)] truncate">
                       {item.subtitle}
                     </p>
-                    <h3 className="font-display text-lg font-extrabold uppercase tracking-tight flex items-center gap-1.5">
+                    <h3 className="font-display text-lg font-extrabold uppercase tracking-tight flex items-center gap-1.5 text-[var(--editorial-ink)]">
                       <span className="truncate">{item.name}</span>
                       {item.verified && <VerifiedBadge size="xs" />}
                     </h3>
                     {item.bio && (
-                      <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2 leading-relaxed">
+                      <p className="text-xs text-[var(--editorial-muted)] line-clamp-2 leading-relaxed">
                         {item.bio}
                       </p>
                     )}
@@ -1043,52 +1051,17 @@ export const HomePage: React.FC = () => {
             transition={{ duration: 0.28 }}
             className="space-y-6 pt-8 editorial-rule-top"
           >
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
-                  <ThemeHeadingIcon />
-                  <span>{section.title}</span>
-                </h2>
-                {section.subtitle && (
-                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">
-                    {section.subtitle}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex flex-wrap gap-1 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] p-1 text-xs font-display font-bold uppercase tracking-wider">
-                  {(
-                    [
-                      ['all', 'Todo'],
-                      ['article', 'Artículos'],
-                      ['gallery', 'Galerías'],
-                      ['video', 'Video'],
-                      ['audio', 'Audio'],
-                      ['infographic', 'Infografías'],
-                      ['document', 'Documentos'],
-                    ] as const
-                  ).map(([val, label]) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setFeedTypeFilter(val)}
-                      className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                        feedTypeFilter === val
-                          ? 'bg-[var(--editorial-primary)] text-white'
-                          : 'text-neutral-700 dark:text-neutral-300 hover:text-black dark:hover:text-white'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
+            <SectionHeader
+              kicker="Archivo abierto"
+              title={section.title || 'Todas las publicaciones'}
+              subtitle={section.subtitle}
+              ornament={<ThemeHeadingIcon />}
+              action={
                 <select
                   aria-label="Filtrar por categoría"
                   value={feedCatFilter}
                   onChange={(e) => setFeedCatFilter(e.target.value)}
-                  className="px-4 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616] text-xs font-display font-bold uppercase tracking-wider"
+                  className="px-4 py-2 min-h-[40px] rounded-full border border-[var(--editorial-border)] bg-[var(--editorial-surface)] text-[var(--editorial-ink)] text-xs font-display font-bold uppercase tracking-wider cursor-pointer focus:outline-none focus:border-[var(--editorial-primary)]"
                 >
                   <option value="all">Todas las categorías</option>
                   {categories.map((cat) => (
@@ -1097,15 +1070,50 @@ export const HomePage: React.FC = () => {
                     </option>
                   ))}
                 </select>
-              </div>
+              }
+            />
+
+            {/* Chips de formato */}
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  ['all', 'Todo'],
+                  ['article', 'Artículos'],
+                  ['gallery', 'Galerías'],
+                  ['video', 'Video'],
+                  ['audio', 'Audio'],
+                  ['infographic', 'Infografías'],
+                  ['document', 'Documentos'],
+                ] as const
+              ).map(([val, label]) => (
+                <FilterChip
+                  key={val}
+                  active={feedTypeFilter === val}
+                  onClick={() => setFeedTypeFilter(val)}
+                >
+                  {label}
+                </FilterChip>
+              ))}
             </div>
 
             {filteredFeed.length === 0 ? (
-              <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 p-10 text-center">
-                <p className="text-base text-neutral-600 dark:text-neutral-400">
-                  No hay publicaciones con los filtros seleccionados.
-                </p>
-              </div>
+              <EmptyState
+                icon={<Newspaper className="w-6 h-6" />}
+                kicker="Sin coincidencias"
+                title="No encontramos entregas con estos filtros"
+                description="Prueba seleccionando otro formato o volviendo a mostrar todas las categorías del archivo."
+                action={
+                  <EditorialButton
+                    variant="secondary"
+                    onClick={() => {
+                      setFeedTypeFilter('all');
+                      setFeedCatFilter('all');
+                    }}
+                  >
+                    Limpiar filtros
+                  </EditorialButton>
+                }
+              />
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
@@ -1116,8 +1124,9 @@ export const HomePage: React.FC = () => {
 
                 {canLoadMore && (
                   <div className="text-center pt-4">
-                    <button
-                      type="button"
+                    <EditorialButton
+                      variant="secondary"
+                      size="lg"
                       onClick={() => {
                         setHasExpandedFeed(true);
                         const nextVisible = visibleCount + 6;
@@ -1126,10 +1135,10 @@ export const HomePage: React.FC = () => {
                           loadMorePublishedPosts();
                         }
                       }}
-                      className="px-6 py-3 rounded-full border-2 border-[#111111] dark:border-neutral-500 font-display font-bold uppercase tracking-wider text-sm hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors cursor-pointer"
                     >
-                      {section.ctaLabel || 'Cargar más publicaciones'}
-                    </button>
+                      <span>{section.ctaLabel || 'Cargar más publicaciones'}</span>
+                      <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                    </EditorialButton>
                   </div>
                 )}
               </>
@@ -1156,32 +1165,28 @@ export const HomePage: React.FC = () => {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.1 }}
                 transition={{ duration: 0.28 }}
-                className="tolima-weave-bg rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] overflow-hidden shadow-sm"
+                className="tolima-weave-bg rounded-3xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] overflow-hidden shadow-xs"
               >
                 <TricolorHairline />
                 <div className="p-6 sm:p-8 space-y-6">
                   <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
                     <div className="space-y-2 max-w-2xl">
-                      <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+                      <p className="font-display text-xs font-bold uppercase tracking-[0.14em] text-[var(--editorial-primary)]">
                         Identidad regional · Hecho en el Tolima, para Colombia
                       </p>
-                      <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+                      <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2 text-[var(--editorial-ink)]">
                         <ThemeHeadingIcon />
                         <span>Tolima, Capital Musical de Colombia</span>
                       </h2>
-                      <p className="font-editorial text-sm sm:text-base text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                      <p className="font-editorial text-sm sm:text-base text-[var(--editorial-muted)] leading-relaxed">
                         Territorio, cultura, memoria sonora, opinión pública y formatos multimedia desde el corazón andino del país.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => navigate('/tolima')}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
-                      >
+                      <EditorialButton variant="primary" size="md" onClick={() => navigate('/tolima')}>
                         <span>Especial Tolima</span>
                         <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
+                      </EditorialButton>
                       {(
                         [
                           ['/categoria/colombia', 'Colombia'],
@@ -1190,14 +1195,9 @@ export const HomePage: React.FC = () => {
                           ['/categoria/video', 'Multimedia'],
                         ] as const
                       ).map(([path, label]) => (
-                        <button
-                          key={path}
-                          type="button"
-                          onClick={() => navigate(path)}
-                          className="px-3.5 py-2 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-[var(--editorial-primary)] font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
-                        >
+                        <FilterChip key={path} onClick={() => navigate(path)}>
                           {label}
-                        </button>
+                        </FilterChip>
                       ))}
                     </div>
                   </div>
@@ -1209,18 +1209,19 @@ export const HomePage: React.FC = () => {
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-[#F8F6F1]/80 dark:bg-[#191919]/80 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <p className="text-sm text-neutral-700 dark:text-neutral-300">
+                    <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <p className="text-sm text-[var(--editorial-muted)]">
                         Explora nuestra ruta especial del departamento: música tradicional, gastronomía tolimense y periodismo territorial.
                       </p>
-                      <button
-                        type="button"
+                      <EditorialButton
+                        variant="secondary"
+                        size="md"
                         onClick={() => navigate('/tolima')}
-                        className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-400 dark:border-neutral-600 font-display text-xs font-bold uppercase tracking-wider hover:border-[var(--editorial-primary)] cursor-pointer"
+                        className="shrink-0"
                       >
                         <span>Visitar página Tolima</span>
                         <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
+                      </EditorialButton>
                     </div>
                   )}
                 </div>

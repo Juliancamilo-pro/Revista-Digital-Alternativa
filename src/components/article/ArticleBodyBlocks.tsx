@@ -40,7 +40,7 @@ export function renderInlineText(raw: string): React.ReactNode {
             href={m[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="underline decoration-[var(--editorial-primary)] underline-offset-4 hover:text-[var(--editorial-primary)]"
+            className="underline decoration-[var(--editorial-primary)] underline-offset-4 hover:text-[var(--editorial-primary)] transition-colors"
           >
             {m[1]}
           </a>
@@ -75,7 +75,7 @@ const BeforeAfterSliderBlock: React.FC<{ block: ContentBlock }> = ({ block }) =>
 
   return (
     <figure className="my-8 space-y-2">
-      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 select-none border border-neutral-300 dark:border-neutral-800">
+      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 select-none border border-[var(--editorial-border)]">
         <img
           src={afterUrl}
           alt={block.afterLabel || 'Después'}
@@ -99,12 +99,12 @@ const BeforeAfterSliderBlock: React.FC<{ block: ContentBlock }> = ({ block }) =>
           style={{ left: `${pos}%` }}
         />
         {block.beforeLabel && (
-          <span className="absolute top-3 left-3 px-2.5 py-1 rounded bg-black/75 text-white font-display text-[11px] font-bold uppercase tracking-wider">
+          <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/75 text-white font-display text-[11px] font-bold uppercase tracking-wider">
             {block.beforeLabel}
           </span>
         )}
         {block.afterLabel && (
-          <span className="absolute top-3 right-3 px-2.5 py-1 rounded bg-black/75 text-white font-display text-[11px] font-bold uppercase tracking-wider">
+          <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/75 text-white font-display text-[11px] font-bold uppercase tracking-wider">
             {block.afterLabel}
           </span>
         )}
@@ -119,7 +119,7 @@ const BeforeAfterSliderBlock: React.FC<{ block: ContentBlock }> = ({ block }) =>
         />
       </div>
       {block.text && (
-        <figcaption className="text-xs text-neutral-600 dark:text-neutral-400 italic">
+        <figcaption className="text-xs text-[var(--editorial-muted)] italic">
           {block.text}
         </figcaption>
       )}
@@ -135,11 +135,12 @@ const CarouselBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
 
   return (
     <figure className="my-8 space-y-2.5">
-      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 border border-neutral-300 dark:border-neutral-800">
+      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 border border-[var(--editorial-border)]">
         <EditorialImage
           src={active.url}
           alt={active.alt || active.caption || 'Imagen de carrusel'}
           fallbackTitle={active.caption}
+          fallbackCategory="Galería"
           width={1200}
           height={750}
           className="w-full h-full object-cover"
@@ -150,7 +151,7 @@ const CarouselBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
               type="button"
               onClick={() => setIdx((i) => (i - 1 + items.length) % items.length)}
               aria-label="Diapositiva anterior"
-              className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/70 text-white hover:bg-black cursor-pointer"
+              className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-black/75 text-white hover:bg-black cursor-pointer"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
@@ -158,18 +159,18 @@ const CarouselBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
               type="button"
               onClick={() => setIdx((i) => (i + 1) % items.length)}
               aria-label="Diapositiva siguiente"
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/70 text-white hover:bg-black cursor-pointer"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-black/75 text-white hover:bg-black cursor-pointer"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
-            <span className="absolute top-3 right-3 px-2.5 py-0.5 rounded bg-black/75 text-white font-tabular text-[11px]">
+            <span className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full bg-black/75 text-white font-tabular text-[11px]">
               {idx + 1} / {items.length}
             </span>
           </>
         )}
       </div>
       {(active.caption || active.credit || items.length > 1) && (
-        <figcaption className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+        <figcaption className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--editorial-muted)]">
           <span className="italic">{active.caption}</span>
           {active.credit && <span className="font-display uppercase">{active.credit}</span>}
           {items.length > 1 && (
@@ -181,7 +182,7 @@ const CarouselBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
                   onClick={() => setIdx(i)}
                   aria-label={`Ir a imagen ${i + 1}`}
                   className={`w-2.5 h-2.5 rounded-full cursor-pointer transition-colors ${
-                    i === idx ? 'bg-[var(--editorial-primary)]' : 'bg-neutral-400/50'
+                    i === idx ? 'bg-[var(--editorial-primary)]' : 'bg-[var(--editorial-muted)]/40'
                   }`}
                 />
               ))}
@@ -238,20 +239,20 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
             const anchorId = `sec-${block.id}`;
             if (block.level === 4) {
               return (
-                <h4 id={anchorId} key={block.id} className="font-display text-xl font-bold tracking-tight pt-2 scroll-mt-16">
+                <h4 id={anchorId} key={block.id} className="font-display text-xl font-bold tracking-tight pt-2 scroll-mt-20 text-[var(--editorial-ink)]">
                   {block.text}
                 </h4>
               );
             }
             if (block.level === 3) {
               return (
-                <h3 id={anchorId} key={block.id} className="font-display text-2xl font-bold tracking-tight pt-3 scroll-mt-16">
+                <h3 id={anchorId} key={block.id} className="font-display text-2xl font-bold tracking-tight pt-3 scroll-mt-20 text-[var(--editorial-ink)]">
                   {block.text}
                 </h3>
               );
             }
             return (
-              <h2 id={anchorId} key={block.id} className="font-display text-3xl font-extrabold tracking-tight pt-5 scroll-mt-16">
+              <h2 id={anchorId} key={block.id} className="font-display text-3xl font-extrabold tracking-tight pt-5 scroll-mt-20 text-[var(--editorial-ink)]">
                 {block.text}
               </h2>
             );
@@ -260,9 +261,9 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
             return (
               <blockquote
                 key={block.id}
-                className="my-8 py-6 border-y border-neutral-400 dark:border-neutral-700 text-center px-4 space-y-3"
+                className="my-9 py-7 border-y border-[var(--editorial-border)] text-center px-4 space-y-3"
               >
-                <p className="font-editorial italic text-2xl sm:text-3xl leading-snug text-[#111111] dark:text-[#F4F1EA]">
+                <p className="font-editorial italic text-2xl sm:text-3xl leading-snug text-[var(--editorial-ink)]">
                   “{block.text}”
                 </p>
                 {block.author && (
@@ -279,7 +280,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                         author: block.author || resolvedAuthorName,
                       })
                     }
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 text-xs font-display font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 hover:border-[var(--editorial-primary)] hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-[var(--editorial-border)] text-xs font-display font-bold uppercase tracking-wider text-[var(--editorial-muted)] hover:border-[var(--editorial-primary)] hover:text-[var(--editorial-primary)] cursor-pointer transition-colors"
                   >
                     <Quote className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Compartir cita</span>
@@ -291,15 +292,22 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
             return (
               <blockquote
                 key={block.id}
-                className="my-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4 shadow-xs"
+                className="my-8 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-6 space-y-4 shadow-xs"
               >
-                <p className="font-editorial italic text-xl sm:text-2xl leading-relaxed text-[#111111] dark:text-[#F4F1EA]">
+                <p className="font-editorial italic text-xl sm:text-2xl leading-relaxed text-[var(--editorial-ink)]">
                   “{block.text}”
                 </p>
-                <footer className="flex items-center gap-3 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+                <footer className="flex items-center gap-3 pt-3 border-t border-[var(--editorial-border)]">
                   {block.imageUrl && (
-                    <div className="w-11 h-11 rounded-full overflow-hidden shrink-0 bg-neutral-200 dark:bg-neutral-800">
-                      <EditorialImage src={block.imageUrl} alt={block.author || ''} width={88} height={88} className="w-full h-full object-cover" />
+                    <div className="w-11 h-11 rounded-full overflow-hidden shrink-0 bg-[var(--editorial-surface-subtle)]">
+                      <EditorialImage
+                        src={block.imageUrl}
+                        alt={block.author || ''}
+                        fallbackTitle={block.author}
+                        width={88}
+                        height={88}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
                   )}
                   <div>
@@ -309,7 +317,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                       </p>
                     )}
                     {block.speakerRole && (
-                      <p className="text-xs text-neutral-500">{block.speakerRole}</p>
+                      <p className="text-xs text-[var(--editorial-muted)]">{block.speakerRole}</p>
                     )}
                   </div>
                 </footer>
@@ -320,12 +328,12 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
             const tone = block.type === 'context_box' ? 'info' : block.calloutTone || 'info';
             const cardClass =
               tone === 'warning'
-                ? 'border-amber-500/40 bg-amber-50/70 dark:bg-amber-950/20'
+                ? 'border-amber-500/40 bg-amber-500/10'
                 : tone === 'key_fact'
-                ? 'border-[var(--editorial-primary)]/35 bg-neutral-100/90 dark:bg-neutral-900'
+                ? 'border-[var(--editorial-primary)]/40 bg-[var(--editorial-primary)]/[0.05]'
                 : block.type === 'context_box'
-                ? 'border-neutral-300 dark:border-neutral-800 bg-neutral-100/80 dark:bg-[#171717]'
-                : 'border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414]';
+                ? 'border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)]'
+                : 'border-[var(--editorial-border)] bg-[var(--editorial-surface)]';
             const badgeText =
               block.type === 'context_box'
                 ? 'Caja de contexto'
@@ -345,7 +353,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                   <span>{block.calloutTitle || badgeText}</span>
                 </div>
                 {block.text && (
-                  <p className="text-base leading-relaxed text-neutral-800 dark:text-neutral-200 whitespace-pre-line">
+                  <p className="text-base leading-relaxed text-[var(--editorial-ink)] whitespace-pre-line">
                     {renderInlineText(block.text)}
                   </p>
                 )}
@@ -365,14 +373,14 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                 {cols.map((col, ci) => (
                   <div
                     key={ci}
-                    className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-1.5"
+                    className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-1.5"
                   >
                     {col.title && (
                       <h4 className="font-display text-base font-bold uppercase tracking-wide text-[var(--editorial-primary)]">
                         {col.title}
                       </h4>
                     )}
-                    <p className="text-sm sm:text-base leading-relaxed text-neutral-800 dark:text-neutral-200">
+                    <p className="text-sm sm:text-base leading-relaxed text-[var(--editorial-ink)]">
                       {renderInlineText(col.body)}
                     </p>
                   </div>
@@ -394,13 +402,15 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                   {items.map((m, mi) => (
                     <div
                       key={mi}
-                      className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-1"
+                      className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-1"
                     >
                       <p className="font-display text-3xl sm:text-4xl font-extrabold text-[var(--editorial-primary)] font-tabular">
                         {m.value}
                       </p>
-                      <p className="font-display text-sm font-bold uppercase tracking-wide">{m.label}</p>
-                      {m.detail && <p className="text-xs text-neutral-500">{m.detail}</p>}
+                      <p className="font-display text-sm font-bold uppercase tracking-wide text-[var(--editorial-ink)]">
+                        {m.label}
+                      </p>
+                      {m.detail && <p className="text-xs text-[var(--editorial-muted)]">{m.detail}</p>}
                     </div>
                   ))}
                 </div>
@@ -415,13 +425,13 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
             const items = (block.listItems || []).filter((item) => item.trim().length > 0);
             if (items.length === 0) return null;
             return block.listStyle === 'ordered' ? (
-              <ol key={block.id} className="list-decimal pl-6 space-y-2">
+              <ol key={block.id} className="list-decimal pl-6 space-y-2 marker:text-[var(--editorial-primary)] marker:font-semibold">
                 {items.map((item, idx) => (
                   <li key={idx}>{renderInlineText(item)}</li>
                 ))}
               </ol>
             ) : (
-              <ul key={block.id} className="list-disc pl-6 space-y-2">
+              <ul key={block.id} className="list-disc pl-6 space-y-2 marker:text-[var(--editorial-primary)]">
                 {items.map((item, idx) => (
                   <li key={idx}>{renderInlineText(item)}</li>
                 ))}
@@ -434,16 +444,16 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
             return (
               <div
                 key={block.id}
-                className="my-7 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="my-7 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
                 <div className="flex items-start gap-3">
                   <FileText className="w-5 h-5 text-[var(--editorial-primary)] shrink-0 mt-0.5" aria-hidden="true" />
                   <div>
-                    <p className="font-display text-base font-bold">
+                    <p className="font-display text-base font-bold text-[var(--editorial-ink)]">
                       {block.documentTitle || 'Documento adjunto'}
                     </p>
                     {block.documentDescription && (
-                      <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
+                      <p className="text-xs text-[var(--editorial-muted)] mt-0.5">
                         {block.documentDescription}
                       </p>
                     )}
@@ -454,7 +464,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                   target="_blank"
                   rel="noopener noreferrer"
                   download
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-neutral-400 dark:border-neutral-700 font-display text-xs font-bold uppercase tracking-wider shrink-0 hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[var(--editorial-border)] font-display text-xs font-bold uppercase tracking-wider shrink-0 hover:bg-[var(--editorial-ink)] hover:text-[var(--editorial-paper)] transition-colors"
                 >
                   <Download className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Descargar PDF</span>
@@ -468,7 +478,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
             return (
               <figure key={block.id} className="my-8">
                 <div
-                  className={`aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 ${
+                  className={`aspect-[16/10] rounded-2xl overflow-hidden bg-neutral-900 border border-[var(--editorial-border)] ${
                     onImageClick && imgUrl ? 'cursor-zoom-in' : ''
                   }`}
                   onClick={() => {
@@ -487,13 +497,14 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                     src={imgUrl}
                     alt={imgAlt}
                     fallbackTitle={block.imageCaption}
+                    fallbackCategory="Fotografía"
                     width={1200}
                     height={750}
                     className="w-full h-full object-cover"
                   />
                 </div>
                 {(block.imageCaption || block.imageCredit) && (
-                  <figcaption className="mt-2 text-xs text-neutral-600 dark:text-neutral-400 italic flex flex-wrap justify-between gap-2">
+                  <figcaption className="mt-2 text-xs text-[var(--editorial-muted)] italic flex flex-wrap justify-between gap-2">
                     <span>{block.imageCaption}</span>
                     {block.imageCredit && <span className="not-italic font-display uppercase">{block.imageCredit}</span>}
                   </figcaption>
@@ -503,7 +514,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
           }
           case 'timeline':
             return (
-              <div key={block.id} className="my-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6">
+              <div key={block.id} className="my-8 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-6">
                 {block.text && (
                   <h3 className="font-display text-lg font-extrabold uppercase tracking-wider text-[var(--editorial-primary)] mb-4">
                     {block.text}
@@ -511,12 +522,12 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                 )}
                 <ol className="space-y-4">
                   {(block.timelineEntries || []).map((entry, idx) => (
-                    <li key={idx} className="pb-4 border-b border-neutral-200 dark:border-neutral-800 last:border-b-0 last:pb-0">
+                    <li key={idx} className="pb-4 border-b border-[var(--editorial-border)] last:border-b-0 last:pb-0">
                       <span className="font-tabular text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                         {entry.date}
                       </span>
-                      <h4 className="font-display text-xl font-bold mt-0.5">{entry.title}</h4>
-                      <p className="text-sm text-neutral-600 dark:text-neutral-300 mt-1 leading-relaxed">
+                      <h4 className="font-display text-xl font-bold mt-0.5 text-[var(--editorial-ink)]">{entry.title}</h4>
+                      <p className="text-sm text-[var(--editorial-muted)] mt-1 leading-relaxed">
                         {entry.detail}
                       </p>
                     </li>
@@ -527,29 +538,29 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
           case 'table':
             return (
               <figure key={block.id} className="my-8 space-y-2">
-                <div className="rounded-2xl overflow-x-auto border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414]">
+                <div className="rounded-2xl overflow-x-auto border border-[var(--editorial-border)] bg-[var(--editorial-surface)]">
                   {block.text && (
-                    <p className="px-4 py-2.5 font-display text-xs font-bold uppercase tracking-wider border-b border-neutral-300 dark:border-neutral-800">
+                    <p className="px-4 py-2.5 font-display text-xs font-bold uppercase tracking-wider border-b border-[var(--editorial-border)] text-[var(--editorial-ink)]">
                       {block.text}
                     </p>
                   )}
                   <table className="w-full text-left text-sm">
                     {block.tableHeaders && block.tableHeaders.length > 0 && (
-                      <thead className="border-b border-neutral-300 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 font-display uppercase text-xs tracking-wider">
+                      <thead className="border-b border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)] font-display uppercase text-xs tracking-wider">
                         <tr>
                           {block.tableHeaders.map((h, i) => (
-                            <th key={i} className="px-4 py-2.5 font-bold">
+                            <th key={i} className="px-4 py-2.5 font-bold text-[var(--editorial-ink)]">
                               {h}
                             </th>
                           ))}
                         </tr>
                       </thead>
                     )}
-                    <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                    <tbody className="divide-y divide-[var(--editorial-border)]">
                       {(block.tableRows || []).map((row, ri) => (
                         <tr key={ri}>
                           {row.map((cell, ci) => (
-                            <td key={ci} className="px-4 py-2.5 font-tabular">
+                            <td key={ci} className="px-4 py-2.5 font-tabular text-[var(--editorial-ink)]">
                               {cell}
                             </td>
                           ))}
@@ -559,7 +570,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                   </table>
                 </div>
                 {block.tableCaption && (
-                  <figcaption className="text-xs text-neutral-600 dark:text-neutral-400 italic">
+                  <figcaption className="text-xs text-[var(--editorial-muted)] italic">
                     Nota. {block.tableCaption}
                   </figcaption>
                 )}
@@ -568,7 +579,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
           case 'divider':
             if (block.dividerVariant === 'asterisks') {
               return (
-                <div key={block.id} aria-hidden="true" className="my-8 text-center font-display text-xl tracking-[0.6em] text-neutral-500">
+                <div key={block.id} aria-hidden="true" className="my-8 text-center font-display text-xl tracking-[0.6em] text-[var(--editorial-muted)]">
                   * * *
                 </div>
               );
@@ -578,7 +589,7 @@ export const ArticleBodyBlocks: React.FC<ArticleBodyBlocksProps> = ({
                 <hr key={block.id} className="my-8 border-t-2 border-[var(--editorial-primary)] w-16 mx-auto" />
               );
             }
-            return <hr key={block.id} className="my-8 border-neutral-300 dark:border-neutral-800 w-1/3 mx-auto" />;
+            return <hr key={block.id} className="my-8 border-[var(--editorial-border)] w-1/3 mx-auto" />;
           case 'social_embed': {
             if (!block.embedUrl?.trim()) return null;
             return (

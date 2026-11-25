@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Download, Share2, X } from 'lucide-react';
+import { Download, Share2 } from 'lucide-react';
+import { EditorialButton, EditorialModal, EditorialNotice } from './ui/EditorialPrimitives';
 
 interface QuoteShareModalProps {
   open: boolean;
@@ -53,34 +54,28 @@ export const QuoteShareModal: React.FC<QuoteShareModalProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Background gradient
     const grad = ctx.createLinearGradient(0, 0, size, size);
     grad.addColorStop(0, '#141414');
     grad.addColorStop(1, '#090909');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, size, size);
 
-    // Subtle decorative crimson glow
     ctx.fillStyle = `${primaryColor}28`;
     ctx.beginPath();
     ctx.arc(930, 140, 260, 0, Math.PI * 2);
     ctx.fill();
 
-    // Top accent bar
     ctx.fillStyle = primaryColor;
     ctx.fillRect(0, 0, size, 18);
 
-    // Magazine masthead
     ctx.fillStyle = '#FCA5A5';
     ctx.font = '700 28px "Barlow Condensed", system-ui, sans-serif';
     ctx.fillText(siteName.toUpperCase(), 84, 110);
 
-    // Big opening quotation mark
     ctx.fillStyle = primaryColor;
     ctx.font = '700 130px Georgia, serif';
     ctx.fillText('“', 74, 245);
 
-    // Main quote body
     ctx.fillStyle = '#F4F1EA';
     const cleanQuote = quoteText.trim();
     const fontSize = cleanQuote.length > 220 ? 38 : cleanQuote.length > 130 ? 46 : 54;
@@ -93,7 +88,6 @@ export const QuoteShareModal: React.FC<QuoteShareModalProps> = ({
       y += lineHeight;
     }
 
-    // Attribution
     if (quoteAuthor?.trim()) {
       ctx.fillStyle = primaryColor;
       ctx.fillRect(84, Math.min(820, y + 20), 64, 5);
@@ -102,7 +96,6 @@ export const QuoteShareModal: React.FC<QuoteShareModalProps> = ({
       ctx.fillText(quoteAuthor.trim().toUpperCase(), 84, Math.min(865, y + 66));
     }
 
-    // Footer divider & article title
     ctx.strokeStyle = '#2A2A2A';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -119,8 +112,6 @@ export const QuoteShareModal: React.FC<QuoteShareModalProps> = ({
 
     setPreviewUrl(canvas.toDataURL('image/png'));
   }, [open, quoteText, quoteAuthor, articleTitle, siteName, primaryColor]);
-
-  if (!open) return null;
 
   const handleDownload = () => {
     if (!previewUrl) return;
@@ -162,62 +153,33 @@ export const QuoteShareModal: React.FC<QuoteShareModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="quote-share-title"
+    <EditorialModal
+      open={open}
+      onClose={onClose}
+      kicker="Tarjeta visual para redes"
+      title="Compartir cita"
     >
-      <div className="w-full max-w-lg rounded-2xl bg-[#F8F6F1] dark:bg-[#141414] border border-neutral-200 dark:border-neutral-800 p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
-              Tarjeta visual para redes
-            </p>
-            <h3 id="quote-share-title" className="font-display text-2xl font-extrabold uppercase tracking-tight">
-              Compartir cita
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cerrar generador de cita"
-            className="p-2 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+      <canvas ref={canvasRef} className="hidden" />
+
+      {previewUrl && (
+        <div className="rounded-2xl overflow-hidden border border-[var(--editorial-border)] shadow-lg">
+          <img src={previewUrl} alt="Vista previa de tarjeta de cita" className="w-full h-auto block" />
         </div>
+      )}
 
-        <canvas ref={canvasRef} className="hidden" />
-
-        {previewUrl && (
-          <div className="rounded-2xl overflow-hidden border border-neutral-300 dark:border-neutral-800 shadow-lg">
-            <img src={previewUrl} alt="Vista previa de tarjeta de cita" className="w-full h-auto block" />
-          </div>
+      <div className="flex flex-wrap gap-3 pt-1">
+        <EditorialButton onClick={handleDownload} size="md" className="flex-1">
+          <Download className="w-4 h-4" />
+          <span>Descargar PNG</span>
+        </EditorialButton>
+        {typeof navigator !== 'undefined' && 'share' in navigator && (
+          <EditorialButton variant="secondary" size="md" onClick={handleNativeShare}>
+            <Share2 className="w-4 h-4" />
+            <span>Compartir</span>
+          </EditorialButton>
         )}
-
-        <div className="flex flex-wrap gap-3 pt-1">
-          <button
-            type="button"
-            onClick={handleDownload}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Descargar PNG</span>
-          </button>
-          {typeof navigator !== 'undefined' && 'share' in navigator && (
-            <button
-              type="button"
-              onClick={handleNativeShare}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black font-display text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
-            >
-              <Share2 className="w-4 h-4" />
-              <span>Compartir</span>
-            </button>
-          )}
-        </div>
-        {shareNote && <p className="text-xs text-neutral-500">{shareNote}</p>}
       </div>
-    </div>
+      {shareNote && <EditorialNotice>{shareNote}</EditorialNotice>}
+    </EditorialModal>
   );
 };

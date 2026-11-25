@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { RefreshCw, WifiOff, X } from 'lucide-react';
-import { MotionConfig } from 'motion/react';
+import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { AuthModal } from './components/AuthModal';
 import { EditorialPageSkeleton } from './components/EditorialSkeletons';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -48,7 +48,7 @@ const LegalPage = lazy(() => import('./components/StaticPages').then((m) => ({ d
 
 const EditorialRouter: React.FC = () => {
   const { currentPath } = useSite();
-  const { autoNotice, dismissAutoNotice } = useDataSaver();
+  const { autoNotice, dismissAutoNotice, isDataSaverActive } = useDataSaver();
   const { currentTrack } = useMediaPlayer();
   const { needsRefresh, applyUpdate, dismissUpdate } = usePWAUpdate();
   const pathname = currentPath.split('?')[0].replace(/\/+$/, '') || '/';
@@ -110,7 +110,19 @@ const EditorialRouter: React.FC = () => {
       <Header />
       <ThemeGreetingBanner />
       <div id="main-content" tabIndex={-1} className="flex-1 focus:outline-none relative z-10">
-        <Suspense fallback={<EditorialPageSkeleton />}>{view}</Suspense>
+        <Suspense fallback={<EditorialPageSkeleton />}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={isDataSaverActive ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={isDataSaverActive ? undefined : { opacity: 0 }}
+              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {view}
+            </motion.div>
+          </AnimatePresence>
+        </Suspense>
       </div>
       <Footer />
       <MiniAudioPlayer />

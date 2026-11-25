@@ -9,6 +9,7 @@ interface EditorialImageProps {
   className?: string;
   wrapperClassName?: string;
   fallbackTitle?: string;
+  fallbackCategory?: string;
   aspectClass?: string;
   priority?: boolean;
   allowInDataSaver?: boolean;
@@ -27,6 +28,7 @@ export const EditorialImage: React.FC<EditorialImageProps> = ({
   className = 'w-full h-full object-cover',
   wrapperClassName = '',
   fallbackTitle,
+  fallbackCategory,
   aspectClass = '',
   priority = false,
   allowInDataSaver = false,
@@ -77,17 +79,35 @@ export const EditorialImage: React.FC<EditorialImageProps> = ({
   const wrapperPosition = hasExplicitPosition ? '' : 'relative';
 
   if (!safeSrc || failed) {
+    const initial = (fallbackCategory || fallbackTitle || 'R').trim().slice(0, 1).toUpperCase();
     return (
       <div
-        className={`${wrapperPosition} flex flex-col items-center justify-center bg-gradient-to-br from-neutral-900 via-neutral-800 to-[#3B0A0A] text-[#F4F1EA] p-4 text-center ${aspectClass} ${className} ${wrapperClassName}`}
+        className={`${wrapperPosition} overflow-hidden flex flex-col justify-between bg-gradient-to-br from-[#181414] via-[#221616] to-[#3B0D0D] text-[#F4F1EA] p-4 sm:p-5 ${aspectClass} ${className} ${wrapperClassName}`}
         role="img"
         aria-label={alt}
       >
-        <Newspaper className="w-7 h-7 text-[#B91C1C] mb-2 opacity-90" aria-hidden="true" />
-        {fallbackTitle && (
-          <span className="font-display text-sm font-semibold tracking-wide line-clamp-2 max-w-[22ch] opacity-85">
-            {fallbackTitle}
+        {/* Sutil patrón geométrico editorial */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 opacity-20 tolima-weave-bg pointer-events-none"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute -right-6 -bottom-8 font-display text-[7rem] font-extrabold leading-none text-white/[0.05] select-none pointer-events-none"
+        >
+          {initial}
+        </div>
+        <div className="relative z-10 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-[0.14em] text-[#FCA5A5]">
+            <Newspaper className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{fallbackCategory || 'Edición editorial'}</span>
           </span>
+          <span className="w-6 h-0.5 bg-[var(--editorial-primary)] rounded-full" aria-hidden="true" />
+        </div>
+        {fallbackTitle && (
+          <p className="relative z-10 font-display text-sm sm:text-base font-extrabold uppercase tracking-tight leading-snug line-clamp-3 text-[#F8F6F1] headline-balance">
+            {fallbackTitle}
+          </p>
         )}
       </div>
     );
@@ -95,7 +115,6 @@ export const EditorialImage: React.FC<EditorialImageProps> = ({
 
   return (
     <div className={`${wrapperPosition} w-full h-full overflow-hidden bg-neutral-200 dark:bg-neutral-900 ${aspectClass} ${wrapperClassName}`}>
-      {/* Placeholder progresivo: miniatura borrosa o esqueleto animado */}
       {!loaded && (
         blurPreview ? (
           <img
@@ -137,9 +156,8 @@ export const EditorialImage: React.FC<EditorialImageProps> = ({
         />
       )}
 
-      {/* Aviso de Modo Ahorro de Datos */}
       {deferredByDataSaver && (
-        <div className="relative z-10 w-full h-full min-h-[120px] flex flex-col items-center justify-center p-4 text-center bg-neutral-900/55 text-white">
+        <div className="relative z-10 w-full h-full min-h-[120px] flex flex-col items-center justify-center p-4 text-center bg-neutral-900/60 text-white">
           <ImageIcon className="w-5 h-5 mb-1.5 opacity-90" aria-hidden="true" />
           <p className="text-[11px] font-display uppercase tracking-wider opacity-90 mb-2">
             Ahorro de datos activo
@@ -159,7 +177,6 @@ export const EditorialImage: React.FC<EditorialImageProps> = ({
         </div>
       )}
 
-      {/* Puerta para contenido sensible */}
       {!deferredByDataSaver && gatedSensitive && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center bg-neutral-950/75 text-white">
           <p className="text-xs font-display font-bold uppercase tracking-wider text-amber-300 mb-1">

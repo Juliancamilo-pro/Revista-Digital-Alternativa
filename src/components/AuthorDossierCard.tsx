@@ -57,7 +57,6 @@ export function extractPublicAuthorDossier(
     ? 'Medio o revista colaboradora'
     : 'Periodista / Columnista independiente';
 
-  // For legacy admin docs where show* wasn't configured yet, preserve existing non-sensitive fields
   const adminShowOrLegacy = (explicitFlag: boolean | undefined, valuePresent: boolean) =>
     explicitFlag !== undefined ? Boolean(explicitFlag) : valuePresent;
 
@@ -89,7 +88,6 @@ export function extractPublicAuthorDossier(
     ? adminShowOrLegacy(adminProfile?.showTopics, Boolean(adminProfile?.topics?.length))
     : Boolean(collabProfile?.showTopics);
 
-  // New extended/sensitive fields require explicit opt-in even for admin
   const canProfession = Boolean(profile?.showProfession);
   const canJobTitle = Boolean(profile?.showJobTitle);
   const canOrganization = Boolean(profile?.showOrganization);
@@ -174,11 +172,11 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
     return (
       <section
         aria-label="Sobre el autor"
-        className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-4 shadow-xs"
+        className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-6 space-y-4 shadow-xs"
       >
         <div className="flex flex-col sm:flex-row items-start gap-4">
           {dossier.avatarUrl ? (
-            <div className="w-16 h-16 rounded-full overflow-hidden shrink-0 bg-neutral-200 dark:bg-neutral-800 ring-2 ring-[var(--editorial-primary)]/20">
+            <div className="w-16 h-16 rounded-full overflow-hidden shrink-0 bg-[var(--editorial-surface-subtle)] ring-2 ring-[var(--editorial-primary)]/25">
               <EditorialImage src={dossier.avatarUrl} alt={dossier.name} fallbackTitle={dossier.name} allowInDataSaver />
             </div>
           ) : (
@@ -203,18 +201,18 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
               )}
             </div>
 
-            <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight flex flex-wrap items-center gap-2">
+            <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight flex flex-wrap items-center gap-2 text-[var(--editorial-ink)]">
               <span>{dossier.name}</span>
               {verified && <VerifiedBadge size="sm" />}
               {dossier.publicAge !== undefined && (
-                <span className="font-editorial text-sm font-normal normal-case text-neutral-500">
+                <span className="font-editorial text-sm font-normal normal-case text-[var(--editorial-muted)]">
                   · {dossier.publicAge} años
                 </span>
               )}
             </h2>
 
             {(roleSummary || cityCountryLabel) && (
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p className="text-xs text-[var(--editorial-muted)] flex flex-wrap items-center gap-x-3 gap-y-1">
                 {roleSummary && (
                   <span className="inline-flex items-center gap-1">
                     <Briefcase className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
@@ -231,7 +229,7 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
             )}
 
             {dossier.bio && (
-              <p className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed pt-1">
+              <p className="text-sm text-[var(--editorial-ink)]/85 leading-relaxed pt-1">
                 {dossier.bio}
               </p>
             )}
@@ -239,25 +237,25 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
         </div>
 
         {(politicalLabel || hasContactBlock) && (
-          <div className="pt-3 border-t border-neutral-200 dark:border-neutral-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="pt-3 border-t border-[var(--editorial-border)] flex flex-wrap items-center justify-between gap-3 text-xs">
             {politicalLabel && (
-              <div className="flex items-center gap-2 text-neutral-600 dark:text-neutral-300">
+              <div className="flex items-center gap-2 text-[var(--editorial-muted)]">
                 {dossier.politicalPartyLogoUrl && (
                   <img
                     src={sanitizeExternalUrl(dossier.politicalPartyLogoUrl)}
                     alt={`Logo de ${dossier.politicalPartyName || 'organización política'}`}
-                    className="w-6 h-6 rounded object-contain bg-white border border-neutral-200"
+                    className="w-6 h-6 rounded object-contain bg-white border border-[var(--editorial-border)]"
                   />
                 )}
                 <span>
-                  <strong>Afiliación declarada:</strong> {politicalLabel}
+                  <strong className="text-[var(--editorial-ink)]">Afiliación declarada:</strong> {politicalLabel}
                   {dossier.politicalPartyRole ? ` (${dossier.politicalPartyRole})` : ''}
                 </span>
               </div>
             )}
 
             {hasContactBlock && (
-              <div className="flex flex-wrap items-center gap-3 font-display text-[11px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
+              <div className="flex flex-wrap items-center gap-3 font-display text-[11px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">
                 {cleanWeb && (
                   <a href={cleanWeb} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-[var(--editorial-primary)]">
                     <ExternalLink className="w-3 h-3" /> Sitio web
@@ -278,10 +276,9 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
     );
   }
 
-  // Full Public Dossier ("Ficha de autor")
   return (
     <section className="space-y-6">
-      <div className="border-b border-neutral-300 dark:border-neutral-800 pb-8 flex flex-col sm:flex-row items-start sm:items-center gap-6">
+      <div className="border-b border-[var(--editorial-border)] pb-8 flex flex-col sm:flex-row items-start sm:items-center gap-6">
         <div className="w-24 h-24 rounded-full overflow-hidden bg-neutral-900 shrink-0 ring-2 ring-[var(--editorial-primary)]/30">
           {dossier.avatarUrl ? (
             <EditorialImage src={dossier.avatarUrl} alt={dossier.name} fallbackTitle={dossier.name} allowInDataSaver />
@@ -295,11 +292,11 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
           <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
             {dossier.outletLabel}
           </p>
-          <h1 className="font-display text-3xl sm:text-5xl font-extrabold uppercase tracking-tight flex flex-wrap items-center gap-2.5">
+          <h1 className="font-display text-3xl sm:text-5xl font-extrabold uppercase tracking-tight flex flex-wrap items-center gap-2.5 text-[var(--editorial-ink)]">
             <span>{dossier.name}</span>
             {verified && <VerifiedBadge size="lg" />}
           </h1>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-600 dark:text-neutral-400">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--editorial-muted)]">
             {dossier.publicAge !== undefined && (
               <span className="inline-flex items-center gap-1">
                 <UserCheck className="w-3.5 h-3.5" aria-hidden="true" />
@@ -319,7 +316,7 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
               </span>
             )}
             {dossier.showPostCount && (
-              <span className="font-tabular">
+              <span className="font-tabular font-semibold text-[var(--editorial-ink)]">
                 {postCount} {postCount === 1 ? 'publicación' : 'publicaciones'}
               </span>
             )}
@@ -329,7 +326,7 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
               {dossier.topics.map((t) => (
                 <span
                   key={t}
-                  className="px-2.5 py-0.5 rounded-full bg-neutral-200/70 dark:bg-neutral-800 text-[11px] font-display uppercase tracking-wider"
+                  className="px-2.5 py-0.5 rounded-full border border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)] text-[11px] font-display uppercase tracking-wider text-[var(--editorial-ink)]"
                 >
                   {t}
                 </span>
@@ -339,54 +336,53 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
         </div>
       </div>
 
-      {/* Structured Public Dossier Sections */}
       {(dossier.bio || dossier.profession || hasWorkBlock || politicalLabel || hasContactBlock) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {dossier.bio && (
-            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2">
+            <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2">
               <h2 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                 Quién es
               </h2>
-              <p className="text-sm sm:text-base text-neutral-700 dark:text-neutral-300 leading-relaxed whitespace-pre-line">
+              <p className="text-sm sm:text-base text-[var(--editorial-ink)]/85 leading-relaxed whitespace-pre-line">
                 {dossier.bio}
               </p>
             </div>
           )}
 
           {dossier.profession && (
-            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2">
+            <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2">
               <h2 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] flex items-center gap-1.5">
                 <Briefcase className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>A qué se dedica</span>
               </h2>
-              <p className="text-sm sm:text-base text-neutral-700 dark:text-neutral-300 leading-relaxed">
+              <p className="text-sm sm:text-base text-[var(--editorial-ink)]/85 leading-relaxed">
                 {dossier.profession}
               </p>
             </div>
           )}
 
           {hasWorkBlock && (
-            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2">
+            <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2">
               <h2 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] flex items-center gap-1.5">
                 <Building2 className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Dónde trabaja</span>
               </h2>
-              <dl className="space-y-1 text-sm text-neutral-700 dark:text-neutral-300">
+              <dl className="space-y-1 text-sm text-[var(--editorial-ink)]/85">
                 {dossier.jobTitle && (
                   <div>
-                    <dt className="inline font-semibold">Cargo actual: </dt>
+                    <dt className="inline font-semibold text-[var(--editorial-ink)]">Cargo actual: </dt>
                     <dd className="inline">{dossier.jobTitle}</dd>
                   </div>
                 )}
                 {dossier.organization && (
                   <div>
-                    <dt className="inline font-semibold">Organización / medio: </dt>
+                    <dt className="inline font-semibold text-[var(--editorial-ink)]">Organización / medio: </dt>
                     <dd className="inline">{dossier.organization}</dd>
                   </div>
                 )}
                 {cityCountryLabel && (
                   <div>
-                    <dt className="inline font-semibold">Ubicación: </dt>
+                    <dt className="inline font-semibold text-[var(--editorial-ink)]">Ubicación: </dt>
                     <dd className="inline">{cityCountryLabel}</dd>
                   </div>
                 )}
@@ -395,7 +391,7 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
           )}
 
           {politicalLabel && (
-            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2.5">
+            <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2.5">
               <h2 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] flex items-center gap-1.5">
                 <Landmark className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Afiliación política</span>
@@ -405,24 +401,24 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
                   <img
                     src={sanitizeExternalUrl(dossier.politicalPartyLogoUrl)}
                     alt={`Logotipo de ${dossier.politicalPartyName || 'movimiento político'}`}
-                    className="w-12 h-12 rounded-xl object-contain bg-white border border-neutral-200 p-1 shrink-0"
+                    className="w-12 h-12 rounded-xl object-contain bg-white border border-[var(--editorial-border)] p-1 shrink-0"
                   />
                 )}
-                <div className="text-sm text-neutral-800 dark:text-neutral-200">
+                <div className="text-sm text-[var(--editorial-ink)]">
                   <p className="font-semibold">{politicalLabel}</p>
                   {dossier.politicalPartyRole && (
-                    <p className="text-xs text-neutral-500">Rol o cargo: {dossier.politicalPartyRole}</p>
+                    <p className="text-xs text-[var(--editorial-muted)]">Rol o cargo: {dossier.politicalPartyRole}</p>
                   )}
                 </div>
               </div>
-              <p className="text-[11px] text-neutral-500 italic">
+              <p className="text-[11px] text-[var(--editorial-muted)] italic">
                 Información declarada directamente por el propio autor.
               </p>
             </div>
           )}
 
           {hasContactBlock && (
-            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2.5 md:col-span-2">
+            <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2.5 md:col-span-2">
               <h2 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                 Contacto y redes
               </h2>
@@ -432,7 +428,7 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
                     href={cleanWeb}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:text-[var(--editorial-primary)]"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] hover:text-[var(--editorial-primary)] transition-colors"
                   >
                     <ExternalLink className="w-3.5 h-3.5" /> Sitio web
                   </a>
@@ -440,23 +436,23 @@ export const AuthorDossierCard: React.FC<AuthorDossierCardProps> = ({
                 {dossier.publicEmail && (
                   <a
                     href={`mailto:${dossier.publicEmail}`}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 hover:text-[var(--editorial-primary)]"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] hover:text-[var(--editorial-primary)] transition-colors"
                   >
                     <Mail className="w-3.5 h-3.5" /> {dossier.publicEmail}
                   </a>
                 )}
                 {dossier.socialTwitter && (
-                  <span className="px-3.5 py-1.5 rounded-full bg-neutral-200/70 dark:bg-neutral-800">
+                  <span className="px-3.5 py-1.5 rounded-full bg-[var(--editorial-surface-subtle)] border border-[var(--editorial-border)]">
                     X: {dossier.socialTwitter}
                   </span>
                 )}
                 {dossier.socialInstagram && (
-                  <span className="px-3.5 py-1.5 rounded-full bg-neutral-200/70 dark:bg-neutral-800">
+                  <span className="px-3.5 py-1.5 rounded-full bg-[var(--editorial-surface-subtle)] border border-[var(--editorial-border)]">
                     Instagram: {dossier.socialInstagram}
                   </span>
                 )}
                 {dossier.socialYoutube && (
-                  <span className="px-3.5 py-1.5 rounded-full bg-neutral-200/70 dark:bg-neutral-800">
+                  <span className="px-3.5 py-1.5 rounded-full bg-[var(--editorial-surface-subtle)] border border-[var(--editorial-border)]">
                     YouTube: {dossier.socialYoutube}
                   </span>
                 )}

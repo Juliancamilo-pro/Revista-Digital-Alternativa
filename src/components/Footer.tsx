@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { Bell, BellOff, FileCode2, Mail, Rss } from 'lucide-react';
+import { ArrowUpRight, Bell, BellOff, FileCode2, Mail, Rss } from 'lucide-react';
 import { useSite } from '../context/SiteContext';
 import { checkActionCooldown, markActionCooldown } from '../lib/appCheck';
 import { db } from '../lib/firebase';
@@ -102,43 +102,45 @@ export const Footer: React.FC = () => {
     <footer className="mt-20 border-t-4 border-[var(--editorial-primary)] bg-[#111111] text-[#F4F1EA] shadow-2xl relative">
       <ThemeFooterBorder />
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 pb-12 border-b border-neutral-800">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 pb-12 border-b border-neutral-800">
           {/* Brand & Manifesto */}
-          <div className="space-y-4">
-            <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight text-white">
-              {siteConfig.siteName}
-            </h2>
-            <p className="text-sm text-neutral-300 leading-relaxed font-editorial">
+          <div className="lg:col-span-4 space-y-4">
+            <div className="space-y-2">
+              <p className="font-display text-[11px] font-bold uppercase tracking-[0.14em] text-amber-300">
+                {footerOriginLine}
+              </p>
+              <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight text-white">
+                {siteConfig.siteName}
+              </h2>
+            </div>
+            <p className="text-sm text-neutral-300 leading-relaxed font-editorial max-w-[38ch]">
               {footerAboutBlurb}
             </p>
-            <p className="font-display text-xs font-bold uppercase tracking-widest text-amber-300">
-              {footerOriginLine}
-            </p>
             {hasSocialLinks && (
-              <div className="flex flex-wrap gap-2 pt-1 text-xs font-display uppercase tracking-wider text-neutral-300">
+              <div className="flex flex-wrap gap-2 pt-1 text-xs font-display font-bold uppercase tracking-wider text-neutral-300">
                 {twitterUrl && (
-                  <a href={twitterUrl} target="_blank" rel="noreferrer" className="px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
-                    X
+                  <a href={twitterUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
+                    X <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
                   </a>
                 )}
                 {instagramUrl && (
-                  <a href={instagramUrl} target="_blank" rel="noreferrer" className="px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
-                    Instagram
+                  <a href={instagramUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
+                    Instagram <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
                   </a>
                 )}
                 {youtubeUrl && (
-                  <a href={youtubeUrl} target="_blank" rel="noreferrer" className="px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
-                    YouTube
+                  <a href={youtubeUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
+                    YouTube <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
                   </a>
                 )}
                 {telegramUrl && (
-                  <a href={telegramUrl} target="_blank" rel="noreferrer" className="px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
-                    Telegram
+                  <a href={telegramUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
+                    Telegram <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
                   </a>
                 )}
                 {facebookUrl && (
-                  <a href={facebookUrl} target="_blank" rel="noreferrer" className="px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
-                    Facebook
+                  <a href={facebookUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 hover:border-[var(--editorial-primary)] hover:text-white transition-colors">
+                    Facebook <ArrowUpRight className="w-3 h-3" aria-hidden="true" />
                   </a>
                 )}
               </div>
@@ -146,12 +148,12 @@ export const Footer: React.FC = () => {
           </div>
 
           {/* Sections */}
-          <div>
-            <h3 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] mb-4">
+          <div className="lg:col-span-2">
+            <h3 className="font-display text-xs font-bold uppercase tracking-[0.14em] text-[var(--editorial-primary)] mb-4">
               {footerSectionsTitle}
             </h3>
-            <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-neutral-300">
-              {categories.slice(0, 12).map((cat) => (
+            <ul className="grid grid-cols-2 lg:grid-cols-1 gap-x-4 gap-y-2 text-sm text-neutral-300">
+              {categories.slice(0, 10).map((cat) => (
                 <li key={cat.id}>
                   <a
                     href={`/categoria/${cat.slug}`}
@@ -169,70 +171,68 @@ export const Footer: React.FC = () => {
           </div>
 
           {/* Institutional & Legal */}
-          <div>
-            <h3 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] mb-4">
+          <div className="lg:col-span-3">
+            <h3 className="font-display text-xs font-bold uppercase tracking-[0.14em] text-[var(--editorial-primary)] mb-4">
               {footerTransparencyTitle}
             </h3>
             <ul className="space-y-2 text-sm text-neutral-300">
               <li>
-                <a href="/tolima" onClick={(e) => { e.preventDefault(); navigate('/tolima'); }} className="hover:text-white font-semibold text-amber-200">
+                <a href="/tolima" onClick={(e) => { e.preventDefault(); navigate('/tolima'); }} className="hover:text-white font-semibold text-amber-200 transition-colors">
                   Tolima, Capital Musical
                 </a>
               </li>
               <li>
-                <a href="/quienes-somos" onClick={(e) => { e.preventDefault(); navigate('/quienes-somos'); }} className="hover:text-white">
+                <a href="/quienes-somos" onClick={(e) => { e.preventDefault(); navigate('/quienes-somos'); }} className="hover:text-white transition-colors">
                   Quiénes somos
                 </a>
               </li>
               <li>
-                <a href="/como-trabajamos" onClick={(e) => { e.preventDefault(); navigate('/como-trabajamos'); }} className="hover:text-white">
+                <a href="/como-trabajamos" onClick={(e) => { e.preventDefault(); navigate('/como-trabajamos'); }} className="hover:text-white transition-colors">
                   Cómo trabajamos
                 </a>
               </li>
               <li>
-                <a href="/colaboradores" onClick={(e) => { e.preventDefault(); navigate('/colaboradores'); }} className="hover:text-white font-semibold text-white">
+                <a href="/colaboradores" onClick={(e) => { e.preventDefault(); navigate('/colaboradores'); }} className="hover:text-white font-semibold text-white transition-colors">
                   Conozcan a nuestros colaboradores
                 </a>
               </li>
               <li>
-                <a href="/unete" onClick={(e) => { e.preventDefault(); navigate('/unete'); }} className="hover:text-white">
+                <a href="/unete" onClick={(e) => { e.preventDefault(); navigate('/unete'); }} className="hover:text-white transition-colors">
                   Únete como colaborador
                 </a>
               </li>
               <li>
-                <a href="/contacto" onClick={(e) => { e.preventDefault(); navigate('/contacto'); }} className="hover:text-white">
+                <a href="/contacto" onClick={(e) => { e.preventDefault(); navigate('/contacto'); }} className="hover:text-white transition-colors">
                   Contacto y rectificaciones
                 </a>
               </li>
-              <li>
-                <a href="/terminos" onClick={(e) => { e.preventDefault(); navigate('/terminos'); }} className="hover:text-white">
-                  Términos y condiciones
+              <li className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-neutral-400">
+                <a href="/terminos" onClick={(e) => { e.preventDefault(); navigate('/terminos'); }} className="hover:text-white transition-colors">
+                  Términos
                 </a>
-              </li>
-              <li>
-                <a href="/privacidad" onClick={(e) => { e.preventDefault(); navigate('/privacidad'); }} className="hover:text-white">
-                  Política de privacidad
+                <a href="/privacidad" onClick={(e) => { e.preventDefault(); navigate('/privacidad'); }} className="hover:text-white transition-colors">
+                  Privacidad
                 </a>
               </li>
             </ul>
-            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-neutral-800 text-xs font-display uppercase tracking-wider text-neutral-400">
-              <button type="button" onClick={handleDownloadRss} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-900 hover:text-white cursor-pointer">
-                <Rss className="w-3.5 h-3.5" aria-hidden="true" />
+            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-neutral-800 text-xs font-display uppercase tracking-wider text-neutral-400">
+              <button type="button" onClick={handleDownloadRss} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-900 border border-neutral-800 hover:text-white cursor-pointer transition-colors">
+                <Rss className="w-3 h-3" aria-hidden="true" />
                 <span>RSS</span>
               </button>
-              <button type="button" onClick={handleDownloadSitemap} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-900 hover:text-white cursor-pointer">
-                <FileCode2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <button type="button" onClick={handleDownloadSitemap} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-900 border border-neutral-800 hover:text-white cursor-pointer transition-colors">
+                <FileCode2 className="w-3 h-3" aria-hidden="true" />
                 <span>Sitemap</span>
               </button>
             </div>
           </div>
 
           {/* Newsletter */}
-          <div>
-            <h3 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)] mb-4">
+          <div className="lg:col-span-3">
+            <h3 className="font-display text-xs font-bold uppercase tracking-[0.14em] text-[var(--editorial-primary)] mb-4">
               {footerNewsletterTitle}
             </h3>
-            <p className="text-sm text-neutral-300 mb-3">
+            <p className="text-sm text-neutral-300 mb-3 leading-relaxed">
               {footerNewsletterSubtitle}
             </p>
             <form onSubmit={handleSubscribe} className="space-y-2.5">
@@ -250,7 +250,7 @@ export const Footer: React.FC = () => {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Tu nombre (opcional)"
-                className="w-full px-3.5 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[var(--editorial-primary)]"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-900 border border-neutral-700 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[var(--editorial-primary)]"
               />
               <input
                 type="email"
@@ -258,19 +258,19 @@ export const Footer: React.FC = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="tu@correo.org"
-                className="w-full px-3.5 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[var(--editorial-primary)]"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-900 border border-neutral-700 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[var(--editorial-primary)]"
               />
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-2.5 px-4 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                className="w-full min-h-[42px] py-2.5 px-4 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
               >
                 <Mail className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>{submitting ? 'Suscribiendo...' : footerNewsletterCta}</span>
               </button>
             </form>
             {feedback && (
-              <p className={`mt-2 text-xs ${feedback.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+              <p role="status" className={`mt-2 text-xs ${feedback.ok ? 'text-emerald-400' : 'text-red-400'}`}>
                 {feedback.text}
               </p>
             )}
@@ -300,12 +300,12 @@ export const Footer: React.FC = () => {
                   {alertsEnabled ? (
                     <>
                       <BellOff className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Alertas PWA activas (desactivar)</span>
+                      <span>Alertas PWA activas</span>
                     </>
                   ) : (
                     <>
                       <Bell className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Alertas de nuevas publicaciones (PWA)</span>
+                      <span>Alertas de nuevas notas (PWA)</span>
                     </>
                   )}
                 </button>
@@ -320,7 +320,7 @@ export const Footer: React.FC = () => {
         {/* Author liability & Copyright */}
         <div className="pt-8 space-y-3 text-xs text-neutral-400 leading-relaxed">
           {siteConfig.authorLiabilityNotice && (
-            <p className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4 text-neutral-300">
+            <p className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-neutral-300">
               {siteConfig.authorLiabilityNotice}
             </p>
           )}

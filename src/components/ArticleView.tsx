@@ -40,7 +40,6 @@ import {
   Square,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDataSaver } from '../context/DataSaverContext';
@@ -67,8 +66,17 @@ import { ArticleBodyBlocks, renderInlineText } from './article/ArticleBodyBlocks
 import { ArticleCard } from './ArticleCard';
 import { AuthorDossierCard } from './AuthorDossierCard';
 import { EditorialImage } from './EditorialImage';
+import { EditorialArticleSkeleton } from './EditorialSkeletons';
 import { GalleryLightbox, LightboxSlide } from './media/GalleryLightbox';
 import { SmartEmbedPlayer } from './media/SmartEmbedPlayer';
+import {
+  EditorialButton,
+  EditorialModal,
+  EditorialNotice,
+  EmptyState,
+  SectionHeader,
+  editorialInputClass,
+} from './ui/EditorialPrimitives';
 import { VerifiedBadge } from './VerifiedBadge';
 
 const CommentsSection = lazy(() =>
@@ -276,7 +284,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     setVideoStartSec(undefined);
   }, [post?.id]);
 
-  // Reading progress bar
   useEffect(() => {
     const onScroll = () => {
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
@@ -290,7 +297,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Cleanup speech synthesis on leave
   useEffect(() => {
     return () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -300,7 +306,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [setReadingMode]);
 
-  // Sync browser title & SEO/OpenGraph/Twitter meta tags while reading article
   useEffect(() => {
     if (!post) return;
     const prevTitle = document.title;
@@ -339,7 +344,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [post?.title, post?.seoDescription, post?.subtitle, post?.coverImage, siteConfig.siteName, siteConfig.tagline]);
 
-  // Privacy-safe view increment & analytics event
   useEffect(() => {
     if (!post || post.status !== 'published') return;
     enteredAtRef.current = Date.now();
@@ -380,8 +384,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [post?.id]);
 
-  // Keyboard handling delegated to GalleryLightbox
-
   const seriesEpisodes = useMemo(() => {
     if (!post?.seriesId) return [];
     return publishedPosts
@@ -415,30 +417,19 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   }, [seriesEpisodes]);
 
   if (!post && loadingRemotePost) {
-    return (
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12 space-y-6 animate-pulse">
-        <div className="h-4 w-32 bg-neutral-300 dark:bg-neutral-800 rounded" />
-        <div className="h-10 w-3/4 bg-neutral-300 dark:bg-neutral-800 rounded" />
-        <div className="h-5 w-1/2 bg-neutral-200 dark:bg-neutral-800/70 rounded" />
-        <div className="aspect-[16/9] w-full bg-neutral-200 dark:bg-neutral-800 rounded-2xl" />
-      </main>
-    );
+    return <EditorialArticleSkeleton />;
   }
 
   if (!post) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-20 text-center space-y-4">
-        <h1 className="font-display text-4xl font-extrabold uppercase">Publicación no encontrada</h1>
-        <p className="text-neutral-600 dark:text-neutral-400">
-          El artículo que buscas no existe o fue retirado de la edición pública.
-        </p>
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="px-6 py-2.5 rounded-full bg-[var(--editorial-primary)] text-white font-display font-bold uppercase tracking-wider text-sm cursor-pointer"
-        >
-          Volver a la portada
-        </button>
+      <main className="max-w-3xl mx-auto px-4 py-16 sm:py-24">
+        <EmptyState
+          icon={<FileText className="w-6 h-6" />}
+          kicker="Archivo editorial"
+          title="Publicación no encontrada"
+          description="El artículo que buscas no existe o fue retirado de la edición pública."
+          action={<EditorialButton onClick={() => navigate('/')}>Volver a la portada</EditorialButton>}
+        />
       </main>
     );
   }
@@ -454,8 +445,8 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   const fontSizeClass: Record<FontSizeScale, string> = {
     sm: 'text-[16px] leading-[1.7]',
     md: 'text-[18px] sm:text-[19px] leading-[1.78]',
-    lg: 'text-[21px] leading-[1.8]',
-    xl: 'text-[23px] leading-[1.85]',
+    lg: 'text-[21px] leading-[1.82]',
+    xl: 'text-[23px] leading-[1.86]',
   };
 
   const handleToggleSpeech = () => {
@@ -524,6 +515,18 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // ignore
+    }
+  };
+
+  const handleBookmarkClick = async () => {
+    if (!firebaseUser) {
+      setAuthModalOpen(true);
+      return;
+    }
+    try {
+      await toggleBookmark(post);
+    } catch {
+      // Logged in AuthContext
     }
   };
 
@@ -631,6 +634,11 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         } as React.CSSProperties)
       : undefined;
 
+  const kindLabel = getEditorialKindLabel(post.editorialKind);
+  const showDistinctKind =
+    Boolean(kindLabel) &&
+    kindLabel.trim().toLowerCase() !== (post.categoryName || '').trim().toLowerCase();
+
   const isThisAudioPlaying = Boolean(
     currentTrack && currentTrack.postId === post.id && globalAudioPlaying
   );
@@ -677,8 +685,8 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
   };
 
   return (
-    <article className="relative animate-[fade-up-enter_0.35s_ease-out]" style={customAccentStyle}>
-      {/* Fixed Reading Progress Bar */}
+    <article className="relative animate-[fade-up-enter_0.3s_ease-out]" style={customAccentStyle}>
+      {/* Barra fija de progreso de lectura */}
       <div
         role="progressbar"
         aria-valuenow={scrollProgress}
@@ -689,28 +697,24 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         style={{ width: `${scrollProgress}%` }}
       />
 
-      {/* Distraction-free exit bar */}
+      {/* Barra de salida de modo lectura */}
       {readingMode && (
-        <div className="sticky top-0 z-40 border-b border-neutral-300 dark:border-neutral-800 bg-[#F8F6F1]/95 dark:bg-[#0D0D0D]/95 backdrop-blur-md px-4 py-2.5 flex items-center justify-between max-w-4xl mx-auto">
-          <span className="font-display text-xs uppercase tracking-widest text-neutral-500">
+        <div className="sticky top-0 z-40 border-b border-[var(--editorial-border)] bg-[var(--editorial-paper)]/95 backdrop-blur-md px-4 py-2.5 flex items-center justify-between max-w-4xl mx-auto">
+          <span className="font-display text-xs uppercase tracking-widest text-[var(--editorial-muted)] font-tabular">
             Modo lectura sin distracciones · {scrollProgress}%
           </span>
-          <button
-            type="button"
-            onClick={() => setReadingMode(false)}
-            className="px-4 py-1.5 rounded-full border border-neutral-400 dark:border-neutral-700 font-display text-xs font-bold uppercase tracking-wider cursor-pointer"
-          >
+          <EditorialButton variant="secondary" size="sm" onClick={() => setReadingMode(false)}>
             Salir del modo lectura
-          </button>
+          </EditorialButton>
         </div>
       )}
 
-      <div className="max-w-[1040px] mx-auto px-4 sm:px-6 pt-8 pb-16">
+      <div className="max-w-[1160px] mx-auto px-4 sm:px-6 lg:px-8 pt-7 pb-16">
         {!readingMode && (
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="inline-flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300 hover:text-[var(--editorial-primary)] mb-6 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider text-[var(--editorial-muted)] hover:text-[var(--editorial-primary)] mb-6 cursor-pointer transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Volver a portada</span>
@@ -718,25 +722,33 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         )}
 
         {post.status !== 'published' && (
-          <div className="mb-6 rounded-2xl border border-amber-500/50 bg-amber-50/90 dark:bg-amber-950/30 p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="space-y-1">
-              <p className="font-display font-extrabold uppercase tracking-wider text-amber-900 dark:text-amber-300">
-                Vista previa privada · Estado: {post.status === 'in_review' ? 'En revisión' : post.status === 'scheduled' ? 'Programada' : post.status === 'unpublished' ? 'Despublicada' : post.status === 'draft' ? 'Borrador' : 'Requiere corrección'}
-              </p>
-              <p className="text-neutral-700 dark:text-neutral-300">
-                Esta publicación no es visible para lectores externos mientras permanezca fuera de edición pública.
-              </p>
-            </div>
-          </div>
+          <EditorialNotice tone="warning" className="mb-6">
+            <p className="font-display font-extrabold uppercase tracking-wider">
+              Vista previa privada · Estado:{' '}
+              {post.status === 'in_review'
+                ? 'En revisión'
+                : post.status === 'scheduled'
+                ? 'Programada'
+                : post.status === 'unpublished'
+                ? 'Despublicada'
+                : post.status === 'draft'
+                ? 'Borrador'
+                : 'Requiere corrección'}
+            </p>
+            <p className="mt-1">
+              Esta publicación no es visible para lectores externos mientras permanezca fuera de edición pública.
+            </p>
+          </EditorialNotice>
         )}
 
-        {/* Header + Cover Variants */}
+        {/* Encabezado y variantes de portada */}
         {coverLayout === 'overlay' && post.coverImage && post.type !== 'video' ? (
           <header className="relative rounded-3xl overflow-hidden bg-[#111111] text-white min-h-[420px] flex items-end p-6 sm:p-10 shadow-xl">
             <EditorialImage
               src={post.coverImage}
               alt={post.coverAlt || post.title}
               fallbackTitle={post.title}
+              fallbackCategory={post.categoryName}
               priority
               sensitive={post.sensitiveContent}
               sensitiveWarning={post.sensitiveWarning}
@@ -746,26 +758,26 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/65 to-black/25 pointer-events-none" />
             <div className="relative z-10 max-w-3xl space-y-3">
               <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest">
-                <span className="px-2 py-0.5 bg-[var(--editorial-primary)] text-white">
-                  {getEditorialKindLabel(post.editorialKind)}
-                </span>
                 <a
                   href={`/categoria/${post.categorySlug}`}
                   onClick={(e) => {
                     e.preventDefault();
                     navigate(`/categoria/${post.categorySlug}`);
                   }}
-                  className="hover:underline text-white/95"
+                  className="px-2.5 py-0.5 rounded-full bg-[var(--editorial-primary)] text-white hover:opacity-90"
                 >
                   {post.categoryName}
                 </a>
+                {showDistinctKind && <span className="text-neutral-200">{kindLabel}</span>}
                 {post.seriesTitle && <span className="text-neutral-300">· {post.seriesTitle}</span>}
               </div>
               <h1 className="font-display text-3xl sm:text-5xl font-extrabold leading-[1.03] tracking-tight headline-balance">
                 {post.title}
               </h1>
               {post.subtitle && (
-                <p className="text-base sm:text-xl text-neutral-200 leading-relaxed">{post.subtitle}</p>
+                <p className="text-base sm:text-xl text-neutral-200 leading-relaxed font-editorial">
+                  {post.subtitle}
+                </p>
               )}
             </div>
           </header>
@@ -773,18 +785,29 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           <header
             className={
               headerStyle === 'editorial'
-                ? 'rounded-3xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] p-6 sm:p-9 shadow-sm'
+                ? 'rounded-3xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-6 sm:p-9 shadow-xs'
                 : headerStyle === 'minimal'
                 ? 'text-center max-w-3xl mx-auto'
-                : ''
+                : 'max-w-4xl mx-auto'
             }
           >
-            <div className={coverLayout === 'compact' && post.coverImage && post.type !== 'video' ? 'grid grid-cols-1 md:grid-cols-12 gap-6 items-center' : ''}>
-              <div className={coverLayout === 'compact' && post.coverImage && post.type !== 'video' ? 'md:col-span-7' : ''}>
-                <div className={`flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-widest text-[var(--editorial-primary)] ${headerStyle === 'minimal' ? 'justify-center' : ''}`}>
-                  <span className="px-2 py-0.5 border border-[var(--editorial-primary)]/40 text-[var(--editorial-primary)]">
-                    {getEditorialKindLabel(post.editorialKind)}
-                  </span>
+            <div
+              className={
+                coverLayout === 'compact' && post.coverImage && post.type !== 'video'
+                  ? 'grid grid-cols-1 md:grid-cols-12 gap-6 items-center'
+                  : ''
+              }
+            >
+              <div
+                className={
+                  coverLayout === 'compact' && post.coverImage && post.type !== 'video' ? 'md:col-span-7' : ''
+                }
+              >
+                <div
+                  className={`flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-[0.12em] text-[var(--editorial-primary)] ${
+                    headerStyle === 'minimal' ? 'justify-center' : ''
+                  }`}
+                >
                   <a
                     href={`/categoria/${post.categorySlug}`}
                     onClick={(e) => {
@@ -795,16 +818,26 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                   >
                     {post.categoryName}
                   </a>
+                  {showDistinctKind && (
+                    <>
+                      <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                        ·
+                      </span>
+                      <span className="text-[var(--editorial-muted)]">{kindLabel}</span>
+                    </>
+                  )}
                   {post.seriesTitle && (
                     <>
-                      <span aria-hidden="true" className="text-neutral-400">·</span>
+                      <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                        ·
+                      </span>
                       <a
                         href={`/serie/${encodeURIComponent(post.seriesTitle.toLowerCase())}`}
                         onClick={(e) => {
                           e.preventDefault();
                           navigate('/buscar');
                         }}
-                        className="text-neutral-700 dark:text-neutral-300 hover:underline"
+                        className="text-[var(--editorial-ink)] hover:underline"
                       >
                         {post.seriesTitle}
                       </a>
@@ -812,12 +845,12 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                   )}
                 </div>
 
-                <h1 className="mt-3 font-display text-3xl sm:text-5xl lg:text-[3.35rem] font-extrabold leading-[1.03] tracking-tight headline-balance">
+                <h1 className="mt-3 font-display text-3xl sm:text-5xl lg:text-[3.35rem] font-extrabold leading-[1.03] tracking-tight headline-balance text-[var(--editorial-ink)]">
                   {post.title}
                 </h1>
 
                 {post.subtitle && (
-                  <p className="mt-4 text-lg sm:text-xl text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                  <p className="mt-4 text-lg sm:text-xl text-[var(--editorial-muted)] leading-relaxed font-editorial">
                     {post.subtitle}
                   </p>
                 )}
@@ -825,11 +858,12 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
 
               {coverLayout === 'compact' && post.coverImage && post.type !== 'video' && (
                 <figure className="md:col-span-5">
-                  <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-neutral-900 shadow-md">
+                  <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-neutral-900 shadow-md border border-[var(--editorial-border)]">
                     <EditorialImage
                       src={post.coverImage}
                       alt={post.coverAlt || post.title}
                       fallbackTitle={post.title}
+                      fallbackCategory={post.categoryName}
                       priority
                       sensitive={post.sensitiveContent}
                       sensitiveWarning={post.sensitiveWarning}
@@ -837,7 +871,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                     />
                   </div>
                   {(post.coverAlt || post.coverCredit) && (
-                    <figcaption className="mt-1.5 text-[11px] text-neutral-500 italic">
+                    <figcaption className="mt-1.5 text-[11px] text-[var(--editorial-muted)] italic">
                       {post.coverAlt || post.coverCredit}
                     </figcaption>
                   )}
@@ -847,10 +881,10 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </header>
         )}
 
-        {/* Byline & Metadata */}
-        <div className="mt-6 py-4 border-y border-neutral-300 dark:border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Firma y barra de herramientas de lectura */}
+        <div className="max-w-4xl mx-auto mt-6 py-4 border-y border-[var(--editorial-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 shrink-0 ring-2 ring-[var(--editorial-primary)]/20 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full overflow-hidden bg-[var(--editorial-surface-subtle)] shrink-0 ring-2 ring-[var(--editorial-primary)]/20 flex items-center justify-center">
               {resolvedAuthorAvatar ? (
                 <EditorialImage
                   src={resolvedAuthorAvatar}
@@ -859,7 +893,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                   allowInDataSaver
                 />
               ) : (
-                <span className="font-display text-base font-extrabold text-neutral-700 dark:text-neutral-200">
+                <span className="font-display text-base font-extrabold text-[var(--editorial-ink)]">
                   {resolvedAuthorName.slice(0, 1).toUpperCase()}
                 </span>
               )}
@@ -871,17 +905,17 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                   e.preventDefault();
                   navigate(`/colaborador/${authorTargetId}`);
                 }}
-                className="inline-flex items-center gap-1.5 font-display text-base font-bold uppercase tracking-wide hover:text-[var(--editorial-primary)]"
+                className="inline-flex items-center gap-1.5 font-display text-base font-bold uppercase tracking-wide hover:text-[var(--editorial-primary)] text-[var(--editorial-ink)] transition-colors"
               >
                 <span>{resolvedAuthorName}</span>
                 {verified && <VerifiedBadge size="xs" />}
               </a>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--editorial-muted)]">
                 <span>Publicado: {formatDateEs(post.publishedAt || post.createdAt, true)}</span>
                 {wasSignificantlyUpdated && (
                   <>
                     <span aria-hidden="true">·</span>
-                    <span className="text-neutral-700 dark:text-neutral-300 font-medium">
+                    <span className="text-[var(--editorial-ink)] font-medium">
                       Actualizado: {formatDateEs(post.updatedAt, true)}
                     </span>
                   </>
@@ -889,20 +923,19 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 <span aria-hidden="true">·</span>
                 <span className="inline-flex items-center gap-1 font-tabular">
                   <Clock className="w-3 h-3" aria-hidden="true" />
-                  {post.readTimeMinutes} min de lectura
+                  {post.readTimeMinutes} min
                 </span>
                 <span aria-hidden="true">·</span>
                 <span className="inline-flex items-center gap-1 font-tabular">
                   <Eye className="w-3 h-3" aria-hidden="true" />
-                  {(post.viewCount || 0).toLocaleString('es-ES')} lecturas
+                  {(post.viewCount || 0).toLocaleString('es-CO')} lecturas
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Reader Accessibility & Bookmark Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center rounded-full overflow-hidden border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#161616]">
+            <div className="inline-flex items-center rounded-full overflow-hidden border border-[var(--editorial-border)] bg-[var(--editorial-surface)]">
               {(['sm', 'md', 'lg', 'xl'] as FontSizeScale[]).map((s, idx) => (
                 <button
                   key={s}
@@ -911,8 +944,8 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                   aria-label={`Tamaño de letra ${s}`}
                   className={`px-2.5 py-1.5 text-xs font-display font-bold cursor-pointer transition-colors ${
                     fontSize === s
-                      ? 'bg-[#111111] text-white dark:bg-white dark:text-black'
-                      : 'text-neutral-600 dark:text-neutral-400 hover:text-black dark:hover:text-white'
+                      ? 'bg-[var(--editorial-ink)] text-[var(--editorial-paper)]'
+                      : 'text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]'
                   }`}
                 >
                   {['A-', 'A', 'A+', 'A++'][idx]}
@@ -925,8 +958,8 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               onClick={() => setReadingMode(!readingMode)}
               className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-xs font-display font-bold uppercase tracking-wider cursor-pointer transition-colors ${
                 readingMode
-                  ? 'bg-[#111111] text-white border-[#111111] dark:bg-white dark:text-black'
-                  : 'border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white'
+                  ? 'bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]'
+                  : 'border-[var(--editorial-border)] bg-[var(--editorial-surface)] hover:border-[var(--editorial-primary)]'
               }`}
             >
               <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
@@ -935,21 +968,11 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
 
             <button
               type="button"
-              onClick={async () => {
-                if (!firebaseUser) {
-                  setAuthModalOpen(true);
-                  return;
-                }
-                try {
-                  await toggleBookmark(post);
-                } catch {
-                  // Logged in AuthContext
-                }
-              }}
+              onClick={handleBookmarkClick}
               className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-xs font-display font-bold uppercase tracking-wider cursor-pointer transition-colors ${
                 isSaved
-                  ? 'border-[var(--editorial-primary)] text-[var(--editorial-primary)] bg-[var(--editorial-primary)]/5'
-                  : 'border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white'
+                  ? 'border-[var(--editorial-primary)] text-[var(--editorial-primary)] bg-[var(--editorial-primary)]/10'
+                  : 'border-[var(--editorial-border)] bg-[var(--editorial-surface)] hover:border-[var(--editorial-primary)]'
               }`}
             >
               <Bookmark className="w-3.5 h-3.5" fill={isSaved ? 'currentColor' : 'none'} aria-hidden="true" />
@@ -958,11 +981,11 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
         </div>
 
-        {/* Browser Speech Synthesis Audio Reader Bar */}
-        <div className="mt-4 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[var(--editorial-surface)] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        {/* Barra de lectura en voz alta */}
+        <div className="max-w-4xl mx-auto mt-4 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Volume2 className="w-4 h-4 text-[var(--editorial-primary)] shrink-0" aria-hidden="true" />
-            <span className="font-display text-xs font-bold uppercase tracking-wider">
+            <span className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
               Versión en audio (lectura en voz alta)
             </span>
           </div>
@@ -971,27 +994,23 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               aria-label="Velocidad de lectura en voz alta"
               value={speechRate}
               onChange={(e) => setSpeechRate(Number(e.target.value))}
-              className="px-2.5 py-1 rounded-full text-xs font-tabular border border-neutral-300 dark:border-neutral-700 bg-[#F8F6F1] dark:bg-[#1E1E1E]"
+              className="px-2.5 py-1 rounded-full text-xs font-tabular border border-[var(--editorial-border)] bg-[var(--editorial-paper)] text-[var(--editorial-ink)]"
             >
               <option value={0.85}>0.85x</option>
               <option value={1}>1.0x</option>
               <option value={1.25}>1.25x</option>
               <option value={1.5}>1.5x</option>
             </select>
-            <button
-              type="button"
-              onClick={handleToggleSpeech}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black font-display text-xs font-bold uppercase tracking-wider cursor-pointer"
-            >
+            <EditorialButton variant="ink" size="sm" onClick={handleToggleSpeech}>
               {speechStatus === 'playing' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               <span>{speechStatus === 'playing' ? 'Pausar' : speechStatus === 'paused' ? 'Reanudar' : 'Escuchar'}</span>
-            </button>
+            </EditorialButton>
             {speechStatus !== 'idle' && (
               <button
                 type="button"
                 onClick={handleStopSpeech}
                 aria-label="Detener audio"
-                className="p-1.5 rounded-full border border-neutral-300 dark:border-neutral-700 text-neutral-600 hover:text-red-600 cursor-pointer"
+                className="p-2 rounded-full border border-[var(--editorial-border)] text-[var(--editorial-muted)] hover:text-red-600 cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" />
               </button>
@@ -999,11 +1018,11 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
         </div>
 
-        {/* Full Cover Media / Zoomable Infographic */}
+        {/* Portada completa o infografía ampliable */}
         {coverLayout === 'full' && post.coverImage && post.type !== 'video' && (
-          <figure className="mt-8">
+          <figure className="max-w-4xl mx-auto mt-8">
             <div
-              className={`relative rounded-2xl overflow-hidden bg-neutral-900 shadow-lg ${
+              className={`relative rounded-2xl overflow-hidden bg-neutral-900 shadow-lg border border-[var(--editorial-border)] ${
                 post.type === 'infographic' ? 'cursor-zoom-in' : 'aspect-[16/9]'
               }`}
               onClick={() => {
@@ -1014,6 +1033,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 src={post.coverImage}
                 alt={post.coverAlt || post.title}
                 fallbackTitle={post.title}
+                fallbackCategory={post.categoryName}
                 priority
                 sensitive={post.sensitiveContent}
                 sensitiveWarning={post.sensitiveWarning}
@@ -1034,7 +1054,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
               )}
             </div>
             {(post.coverAlt || post.coverCredit) && (
-              <figcaption className="mt-2.5 text-xs text-neutral-600 dark:text-neutral-400 italic flex flex-wrap justify-between gap-2">
+              <figcaption className="mt-2.5 text-xs text-[var(--editorial-muted)] italic flex flex-wrap justify-between gap-2">
                 <span>{post.coverAlt}</span>
                 {post.coverCredit && <span className="not-italic font-display uppercase tracking-wider">{post.coverCredit}</span>}
               </figcaption>
@@ -1042,9 +1062,9 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </figure>
         )}
 
-        {/* Downloadable Document / PDF Card */}
+        {/* Documento adjunto */}
         {post.type === 'document' && sanitizeExternalUrl(post.mediaUrl || '') && (
-          <div className="mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+          <div className="max-w-4xl mx-auto mt-8 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
             <div className="flex items-start gap-3.5">
               <div className="w-11 h-11 rounded-xl bg-[var(--editorial-primary)]/10 text-[var(--editorial-primary)] flex items-center justify-center shrink-0">
                 <FileText className="w-5 h-5" aria-hidden="true" />
@@ -1053,7 +1073,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                   Documento adjunto para lectura y descarga
                 </p>
-                <p className="font-display text-lg font-bold mt-0.5">
+                <p className="font-display text-lg font-bold mt-0.5 text-[var(--editorial-ink)]">
                   {post.documentTitle || post.title}
                 </p>
               </div>
@@ -1071,9 +1091,9 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
         )}
 
-        {/* Enhanced Video Player with SmartEmbedPlayer, Chapters, Subtitles & Transcript */}
+        {/* Reproductor de Video */}
         {post.type === 'video' && post.mediaUrl && (
-          <section className="mt-8 space-y-4">
+          <section className="max-w-4xl mx-auto mt-8 space-y-4">
             <SmartEmbedPlayer
               url={post.mediaUrl}
               title={post.title}
@@ -1088,13 +1108,13 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             />
 
             {post.mediaDurationLabel && (
-              <p className="text-xs font-tabular text-neutral-500">
+              <p className="text-xs font-tabular text-[var(--editorial-muted)]">
                 Duración total: {post.mediaDurationLabel}
               </p>
             )}
 
             {post.mediaChapters && post.mediaChapters.length > 0 && (
-              <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 space-y-2.5">
+              <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4 space-y-2.5">
                 <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                   Capítulos del video
                 </p>
@@ -1104,7 +1124,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                       key={chap.id}
                       type="button"
                       onClick={() => handleSeekVideoChapter(chap.timeSec)}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-neutral-300 dark:border-neutral-700 hover:border-[var(--editorial-primary)] text-xs cursor-pointer transition-colors"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] text-xs cursor-pointer transition-colors"
                     >
                       <span className="font-tabular font-bold text-[var(--editorial-primary)]">
                         {formatSecondsToTimestamp(chap.timeSec)}
@@ -1117,7 +1137,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             )}
 
             {post.mediaTranscript && (
-              <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4">
+              <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4">
                 <button
                   type="button"
                   onClick={() => setTranscriptOpen((v) => !v)}
@@ -1127,7 +1147,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                   {transcriptOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
                 {transcriptOpen && (
-                  <p className="mt-3 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300 whitespace-pre-line">
+                  <p className="mt-3 text-sm leading-relaxed text-[var(--editorial-muted)] whitespace-pre-line">
                     {post.mediaTranscript}
                   </p>
                 )}
@@ -1135,7 +1155,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             )}
 
             {post.mediaRelatedLinks && post.mediaRelatedLinks.length > 0 && (
-              <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 space-y-2">
+              <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4 space-y-2">
                 <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                   Recursos mencionados
                 </p>
@@ -1161,10 +1181,10 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </section>
         )}
 
-        {/* Enhanced Audio / Podcast Player + Persistent Mini-Player Integration */}
+        {/* Reproductor de Audio / Pódcast */}
         {post.type === 'audio' && post.mediaUrl && (
-          <section className="mt-8 space-y-4">
-            <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-[#111111] text-white p-5 sm:p-6 space-y-4 shadow-lg">
+          <section className="max-w-4xl mx-auto mt-8 space-y-4">
+            <div className="rounded-2xl border border-neutral-800 bg-[#141414] text-white p-5 sm:p-6 space-y-4 shadow-lg">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-wider text-[#FCA5A5]">
                   <Headphones className="w-4 h-4" aria-hidden="true" />
@@ -1194,7 +1214,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 />
               ) : (
                 <div className="space-y-3">
-                  {/* Unified Persistent Audio Controls */}
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -1336,18 +1355,18 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             </div>
 
             {post.episodeNotes && (
-              <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 space-y-1.5">
+              <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4 space-y-1.5">
                 <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                   Notas del episodio
                 </p>
-                <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300 whitespace-pre-line">
+                <p className="text-sm leading-relaxed text-[var(--editorial-muted)] whitespace-pre-line">
                   {post.episodeNotes}
                 </p>
               </div>
             )}
 
             {post.mediaTranscript && (
-              <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4">
+              <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4">
                 <button
                   type="button"
                   onClick={() => setTranscriptOpen((v) => !v)}
@@ -1357,7 +1376,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                   {transcriptOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
                 {transcriptOpen && (
-                  <p className="mt-3 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300 whitespace-pre-line">
+                  <p className="mt-3 text-sm leading-relaxed text-[var(--editorial-muted)] whitespace-pre-line">
                     {post.mediaTranscript}
                   </p>
                 )}
@@ -1365,11 +1384,11 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
             )}
 
             {seriesEpisodes.length > 1 && (
-              <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 space-y-2.5">
+              <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4 space-y-2.5">
                 <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
                   Más episodios en {post.seriesTitle || 'esta serie'}
                 </p>
-                <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                <ul className="divide-y divide-[var(--editorial-border)]">
                   {seriesEpisodes.map((ep) => (
                     <li key={ep.id} className="py-2 flex items-center justify-between gap-2 text-xs">
                       <a
@@ -1386,7 +1405,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                         {ep.title}
                       </a>
                       {ep.mediaDurationLabel && (
-                        <span className="font-tabular text-neutral-500 shrink-0">{ep.mediaDurationLabel}</span>
+                        <span className="font-tabular text-[var(--editorial-muted)] shrink-0">{ep.mediaDurationLabel}</span>
                       )}
                     </li>
                   ))}
@@ -1396,10 +1415,10 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </section>
         )}
 
-        {/* Photo Gallery Grid if galleryItems present */}
+        {/* Galería fotográfica */}
         {post.galleryItems && post.galleryItems.length > 0 && (
-          <section className="mt-8 space-y-4">
-            <h2 className="font-display text-lg font-bold uppercase tracking-wider border-b border-neutral-300 dark:border-neutral-800 pb-2">
+          <section className="max-w-4xl mx-auto mt-8 space-y-4">
+            <h2 className="font-display text-lg font-bold uppercase tracking-wider border-b border-[var(--editorial-border)] pb-2 text-[var(--editorial-ink)]">
               Galería fotográfica ({post.galleryItems.length} imágenes)
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1407,23 +1426,24 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
                 <figure
                   key={item.id}
                   onClick={() => setLightboxIdx(idx)}
-                  className="group cursor-pointer rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+                  className="group cursor-pointer rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] overflow-hidden shadow-xs hover:shadow-md transition-shadow"
                 >
                   <div className="relative aspect-[4/3] overflow-hidden">
                     <EditorialImage
                       src={item.url}
                       alt={item.alt || item.caption}
                       fallbackTitle={item.caption}
+                      fallbackCategory="Galería"
                       className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
                     />
                     <span className="absolute top-2.5 right-2.5 rounded-full bg-black/70 text-white p-2 opacity-80 group-hover:opacity-100">
                       <Maximize2 className="w-3.5 h-3.5" aria-hidden="true" />
                     </span>
                   </div>
-                  <figcaption className="p-3.5 text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed">
+                  <figcaption className="p-3.5 text-xs text-[var(--editorial-muted)] leading-relaxed">
                     <p>{item.caption}</p>
                     {item.credit && (
-                      <p className="mt-1 font-display uppercase tracking-wider text-neutral-500">
+                      <p className="mt-1 font-display uppercase tracking-wider">
                         Crédito: {item.credit}
                       </p>
                     )}
@@ -1434,265 +1454,343 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
           </section>
         )}
 
-        {/* Key Points Summary Box */}
-        {post.keyPoints && post.keyPoints.length > 0 && (
-          <aside className="max-w-[70ch] mx-auto mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2.5">
-            <h2 className="inline-flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
-              <ListChecks className="w-4 h-4" aria-hidden="true" />
-              <span>Puntos clave</span>
-            </h2>
-            <ul className="list-disc pl-5 space-y-1.5 text-sm sm:text-base text-neutral-800 dark:text-neutral-200 leading-relaxed">
-              {post.keyPoints.map((kp, i) => (
-                <li key={i}>{renderInlineText(kp)}</li>
-              ))}
-            </ul>
-          </aside>
-        )}
-
-        {/* Clickable Table of Contents */}
-        {shouldShowToc && (
-          <nav
-            aria-label="Tabla de contenidos"
-            className="max-w-[70ch] mx-auto mt-6 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2.5"
-          >
-            <p className="inline-flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
-              <List className="w-4 h-4" aria-hidden="true" />
-              <span>Tabla de contenidos</span>
-            </p>
-            <ol className="space-y-1 text-sm">
-              {headings.map((hd) => (
-                <li
-                  key={hd.id}
-                  className={hd.level === 4 ? 'pl-8' : hd.level === 3 ? 'pl-4' : ''}
-                >
-                  <a
-                    href={`#sec-${hd.id}`}
-                    className="text-neutral-700 dark:text-neutral-300 hover:text-[var(--editorial-primary)] hover:underline"
-                  >
-                    {hd.text}
-                  </a>
-                </li>
-              ))}
-            </ol>
-          </nav>
-        )}
-
-        {/* Article Body Column (68ch reading measure) */}
-        <div className={`mt-10 max-w-[68ch] mx-auto space-y-6 font-editorial ${fontSizeClass[fontSize]}`}>
-          <ArticleBodyBlocks
-            blocks={bodyBlocks}
-            paragraphIndent={post.paragraphIndent}
-            resolvedAuthorName={resolvedAuthorName}
-            isDataSaverActive={isDataSaverActive}
-            onQuoteShare={(payload) => setQuoteShare(payload)}
-            onImageClick={(slide) => setStandaloneLightbox(slide)}
-          />
-
-          {/* Footnotes */}
-          {footnotes.length > 0 && (
-            <aside className="mt-10 pt-6 border-t border-neutral-300 dark:border-neutral-800 space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
-              <h3 className="font-display text-xs font-bold uppercase tracking-widest text-neutral-900 dark:text-white">
-                Notas al pie y aclaraciones
-              </h3>
-              {footnotes.map((fn, i) => (
-                <p key={fn.id} id={`nota-${fn.footnoteNumber || i + 1}`} className="leading-relaxed">
-                  <span className="font-tabular font-bold text-[var(--editorial-primary)] mr-2">
-                    [{fn.footnoteNumber || i + 1}]
-                  </span>
-                  {fn.text}
+        {/* Retícula de lectura: riel lateral discreto en escritorio + columna editorial 68ch */}
+        <div className={`mt-10 ${readingMode ? '' : 'lg:grid lg:grid-cols-12 lg:gap-8'}`}>
+          {!readingMode && (
+            <aside className="hidden lg:block lg:col-span-2">
+              <div className="sticky top-24 space-y-2 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-3 shadow-xs">
+                <p className="font-display text-[10px] font-bold uppercase tracking-widest text-[var(--editorial-muted)] px-1">
+                  Lectura · {scrollProgress}%
                 </p>
-              ))}
+                <button
+                  type="button"
+                  onClick={handleBookmarkClick}
+                  className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-display font-bold uppercase tracking-wider cursor-pointer transition-colors ${
+                    isSaved
+                      ? 'bg-[var(--editorial-primary)]/10 text-[var(--editorial-primary)]'
+                      : 'hover:bg-[var(--editorial-surface-subtle)] text-[var(--editorial-ink)]'
+                  }`}
+                >
+                  <Bookmark className="w-3.5 h-3.5 shrink-0" fill={isSaved ? 'currentColor' : 'none'} />
+                  <span>{isSaved ? 'Guardado' : 'Guardar'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleSpeech}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-display font-bold uppercase tracking-wider hover:bg-[var(--editorial-surface-subtle)] text-[var(--editorial-ink)] cursor-pointer transition-colors"
+                >
+                  {speechStatus === 'playing' ? (
+                    <Pause className="w-3.5 h-3.5 shrink-0 text-[var(--editorial-primary)]" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>{speechStatus === 'playing' ? 'Pausar' : 'Escuchar'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReadingMode(true)}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-display font-bold uppercase tracking-wider hover:bg-[var(--editorial-surface-subtle)] text-[var(--editorial-ink)] cursor-pointer transition-colors"
+                >
+                  <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                  <span>Enfoque</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-display font-bold uppercase tracking-wider hover:bg-[var(--editorial-surface-subtle)] text-[var(--editorial-ink)] cursor-pointer transition-colors"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 shrink-0" />}
+                  <span>{copied ? 'Copiado' : 'Enlace'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportOpen(true)}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-display font-bold uppercase tracking-wider hover:text-red-600 text-[var(--editorial-muted)] cursor-pointer transition-colors"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Denunciar</span>
+                </button>
+              </div>
             </aside>
           )}
-        </div>
 
-        {/* Sources Consulted */}
-        {post.sources && post.sources.length > 0 && (
-          <section className="max-w-[70ch] mx-auto mt-8 rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-2.5">
-            <h3 className="font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
-              Fuentes consultadas
-            </h3>
-            <ul className="space-y-1.5 text-sm">
-              {post.sources.map((src, idx) => {
-                const safeUrl = sanitizeExternalUrl(src.url || '');
-                return (
-                  <li key={idx} className="flex items-start justify-between gap-3">
-                    <span className="text-neutral-800 dark:text-neutral-200">• {src.label}</span>
-                    {safeUrl && (
+          <div className={readingMode ? 'max-w-[68ch] mx-auto' : 'lg:col-span-8 lg:col-start-3 max-w-[68ch] mx-auto w-full'}>
+            {/* Puntos clave */}
+            {post.keyPoints && post.keyPoints.length > 0 && (
+              <aside className="mb-8 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2.5">
+                <h2 className="inline-flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
+                  <ListChecks className="w-4 h-4" aria-hidden="true" />
+                  <span>Puntos clave</span>
+                </h2>
+                <ul className="list-disc pl-5 space-y-1.5 text-sm sm:text-base text-[var(--editorial-ink)]/90 leading-relaxed marker:text-[var(--editorial-primary)]">
+                  {post.keyPoints.map((kp, i) => (
+                    <li key={i}>{renderInlineText(kp)}</li>
+                  ))}
+                </ul>
+              </aside>
+            )}
+
+            {/* Tabla de contenidos */}
+            {shouldShowToc && (
+              <nav
+                aria-label="Tabla de contenidos"
+                className="mb-8 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2.5"
+              >
+                <p className="inline-flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
+                  <List className="w-4 h-4" aria-hidden="true" />
+                  <span>Tabla de contenidos</span>
+                </p>
+                <ol className="space-y-1 text-sm">
+                  {headings.map((hd) => (
+                    <li key={hd.id} className={hd.level === 4 ? 'pl-8' : hd.level === 3 ? 'pl-4' : ''}>
                       <a
-                        href={safeUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-display font-bold uppercase text-[var(--editorial-primary)] hover:underline shrink-0"
+                        href={`#sec-${hd.id}`}
+                        className="text-[var(--editorial-muted)] hover:text-[var(--editorial-primary)] hover:underline transition-colors"
                       >
-                        Consultar <ExternalLink className="w-3 h-3" />
+                        {hd.text}
                       </a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            )}
+
+            {/* Cuerpo del artículo */}
+            <div className={`space-y-6 font-editorial text-[var(--editorial-ink)] ${fontSizeClass[fontSize]}`}>
+              <ArticleBodyBlocks
+                blocks={bodyBlocks}
+                paragraphIndent={post.paragraphIndent}
+                resolvedAuthorName={resolvedAuthorName}
+                isDataSaverActive={isDataSaverActive}
+                onQuoteShare={(payload) => setQuoteShare(payload)}
+                onImageClick={(slide) => setStandaloneLightbox(slide)}
+              />
+
+              {footnotes.length > 0 && (
+                <aside className="mt-10 pt-6 border-t border-[var(--editorial-border)] space-y-2 text-sm text-[var(--editorial-muted)]">
+                  <h3 className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-ink)]">
+                    Notas al pie y aclaraciones
+                  </h3>
+                  {footnotes.map((fn, i) => (
+                    <p key={fn.id} id={`nota-${fn.footnoteNumber || i + 1}`} className="leading-relaxed">
+                      <span className="font-tabular font-bold text-[var(--editorial-primary)] mr-2">
+                        [{fn.footnoteNumber || i + 1}]
+                      </span>
+                      {fn.text}
+                    </p>
+                  ))}
+                </aside>
+              )}
+            </div>
+
+            {/* Fuentes consultadas */}
+            {post.sources && post.sources.length > 0 && (
+              <section className="mt-8 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 space-y-2.5">
+                <h3 className="font-display text-xs font-extrabold uppercase tracking-widest text-[var(--editorial-primary)]">
+                  Fuentes consultadas
+                </h3>
+                <ul className="space-y-1.5 text-sm">
+                  {post.sources.map((src, idx) => {
+                    const safeUrl = sanitizeExternalUrl(src.url || '');
+                    return (
+                      <li key={idx} className="flex items-start justify-between gap-3">
+                        <span className="text-[var(--editorial-ink)]/90">• {src.label}</span>
+                        {safeUrl && (
+                          <a
+                            href={safeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-display font-bold uppercase text-[var(--editorial-primary)] hover:underline shrink-0"
+                          >
+                            Consultar <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
+            {/* Historial de correcciones */}
+            {post.corrections && post.corrections.length > 0 && (
+              <section className="mt-8 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 space-y-3">
+                <h3 className="font-display text-xs font-bold uppercase tracking-widest text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                  <History className="w-4 h-4" aria-hidden="true" />
+                  <span>Historial de correcciones y actualizaciones</span>
+                </h3>
+                <ul className="space-y-2.5 text-sm divide-y divide-amber-500/20">
+                  {post.corrections.map((c, idx) => (
+                    <li key={idx} className="pt-2.5 first:pt-0 space-y-0.5">
+                      <p className="text-xs font-display font-bold uppercase tracking-wider text-[var(--editorial-muted)]">
+                        {c.date} · {c.editorName}
+                      </p>
+                      <p className="text-[var(--editorial-ink)] leading-relaxed">{c.note}</p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Etiquetas */}
+            {post.tags && post.tags.length > 0 && (
+              <div className="mt-10 pt-6 border-t border-[var(--editorial-border)] flex flex-wrap items-center gap-2 text-xs font-display uppercase tracking-wider">
+                <span className="font-bold text-[var(--editorial-muted)]">Etiquetas:</span>
+                {post.tags.map((tag, i) => (
+                  <React.Fragment key={tag}>
+                    <a
+                      href={`/etiqueta/${encodeURIComponent(tag)}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(`/etiqueta/${encodeURIComponent(tag)}`);
+                      }}
+                      className="hover:text-[var(--editorial-primary)] underline underline-offset-4 text-[var(--editorial-ink)]"
+                    >
+                      #{tag}
+                    </a>
+                    {i < post.tags.length - 1 && (
+                      <span aria-hidden="true" className="text-[var(--editorial-muted)]/60">
+                        ·
+                      </span>
                     )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
 
-        {/* Corrections & Transparency Box */}
-        {post.corrections && post.corrections.length > 0 && (
-          <section className="max-w-[70ch] mx-auto mt-8 rounded-2xl border border-amber-500/40 bg-amber-50/70 dark:bg-amber-950/20 p-5 space-y-3">
-            <h3 className="font-display text-xs font-bold uppercase tracking-widest text-amber-800 dark:text-amber-300 flex items-center gap-2">
-              <History className="w-4 h-4" aria-hidden="true" />
-              <span>Historial de correcciones y actualizaciones</span>
-            </h3>
-            <ul className="space-y-2.5 text-sm divide-y divide-amber-500/20">
-              {post.corrections.map((c, idx) => (
-                <li key={idx} className="pt-2.5 first:pt-0 space-y-0.5">
-                  <p className="text-xs font-display font-bold uppercase tracking-wider text-neutral-500">
-                    {c.date} · {c.editorName}
-                  </p>
-                  <p className="text-neutral-800 dark:text-neutral-200 leading-relaxed">{c.note}</p>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {/* Tags */}
-        {post.tags && post.tags.length > 0 && (
-          <div className="max-w-[70ch] mx-auto mt-10 pt-6 border-t border-neutral-300 dark:border-neutral-800 flex flex-wrap items-center gap-2 text-xs font-display uppercase tracking-wider">
-            <span className="font-bold text-neutral-500">Etiquetas:</span>
-            {post.tags.map((tag, i) => (
-              <React.Fragment key={tag}>
+            {/* Barra de compartir y reporte */}
+            <div className="mt-6 py-4 border-y border-[var(--editorial-border)] flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-wider">
+                <span className="inline-flex items-center gap-1 text-[var(--editorial-muted)] mr-1">
+                  <Share2 className="w-3.5 h-3.5" aria-hidden="true" /> Compartir:
+                </span>
                 <a
-                  href={`/etiqueta/${encodeURIComponent(tag)}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigate(`/etiqueta/${encodeURIComponent(tag)}`);
-                  }}
-                  className="hover:text-[var(--editorial-primary)] underline underline-offset-4"
+                  href={shareLinks.whatsapp}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-full border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] transition-colors"
                 >
-                  #{tag}
+                  WhatsApp
                 </a>
-                {i < post.tags.length - 1 && <span aria-hidden="true" className="text-neutral-400">·</span>}
-              </React.Fragment>
-            ))}
-          </div>
-        )}
+                <a
+                  href={shareLinks.twitter}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-full border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] transition-colors"
+                >
+                  X
+                </a>
+                <a
+                  href={shareLinks.facebook}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-full border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] transition-colors"
+                >
+                  Facebook
+                </a>
+                <a
+                  href={shareLinks.telegram}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-full border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] transition-colors"
+                >
+                  Telegram
+                </a>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="px-3 py-1 rounded-full border border-[var(--editorial-border)] hover:border-[var(--editorial-primary)] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copied ? 'Copiado' : 'Copiar enlace'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuoteShare({
+                      text: post.subtitle || post.title,
+                      author: resolvedAuthorName,
+                    })
+                  }
+                  className="px-3 py-1 rounded-full border border-[var(--editorial-primary)]/40 text-[var(--editorial-primary)] hover:bg-[var(--editorial-primary)] hover:text-white inline-flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Quote className="w-3.5 h-3.5" />
+                  <span>Tarjeta de cita</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSharePreview((v) => !v)}
+                  className="px-2.5 py-1 text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)] cursor-pointer"
+                >
+                  Vista previa social
+                </button>
+              </div>
 
-        {/* Share & Report Bar */}
-        <div className="max-w-[70ch] mx-auto mt-6 py-4 border-y border-neutral-300 dark:border-neutral-800 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase tracking-wider">
-            <span className="inline-flex items-center gap-1 text-neutral-500 mr-1">
-              <Share2 className="w-3.5 h-3.5" aria-hidden="true" /> Compartir:
-            </span>
-            <a href={shareLinks.whatsapp} target="_blank" rel="noopener noreferrer" className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white transition-colors">
-              WhatsApp
-            </a>
-            <a href={shareLinks.twitter} target="_blank" rel="noopener noreferrer" className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white transition-colors">
-              X
-            </a>
-            <a href={shareLinks.facebook} target="_blank" rel="noopener noreferrer" className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white transition-colors">
-              Facebook
-            </a>
-            <a href={shareLinks.telegram} target="_blank" rel="noopener noreferrer" className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white transition-colors">
-              Telegram
-            </a>
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className="px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 hover:border-black dark:hover:border-white inline-flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copiado' : 'Copiar enlace'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setQuoteShare({
-                  text: post.subtitle || post.title,
-                  author: resolvedAuthorName,
-                })
-              }
-              className="px-3 py-1 rounded-full border border-[var(--editorial-primary)]/40 text-[var(--editorial-primary)] hover:bg-[var(--editorial-primary)] hover:text-white inline-flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <Quote className="w-3.5 h-3.5" />
-              <span>Tarjeta de cita</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSharePreview((v) => !v)}
-              className="px-2.5 py-1 text-neutral-500 hover:text-black dark:hover:text-white cursor-pointer"
-            >
-              Vista previa social
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setReportOpen(true)}
-            className="inline-flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider text-neutral-500 hover:text-red-600 cursor-pointer"
-          >
-            <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Denunciar contenido</span>
-          </button>
-        </div>
-
-        {/* Social Preview Card */}
-        {showSharePreview && (
-          <div className="max-w-[70ch] mx-auto mt-4 rounded-2xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414] grid grid-cols-1 sm:grid-cols-12 overflow-hidden">
-            <div className="sm:col-span-4 aspect-[4/3]">
-              <EditorialImage src={post.coverImage} alt={post.title} fallbackTitle={post.title} />
+              <button
+                type="button"
+                onClick={() => setReportOpen(true)}
+                className="inline-flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider text-[var(--editorial-muted)] hover:text-red-600 cursor-pointer"
+              >
+                <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Denunciar contenido</span>
+              </button>
             </div>
-            <div className="sm:col-span-8 p-4 space-y-1">
-              <p className="text-[11px] font-display uppercase tracking-widest text-neutral-500">
-                {siteConfig.siteName} · Tarjeta para redes sociales
-              </p>
-              <p className="font-display text-lg font-bold leading-snug">{post.title}</p>
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2">{post.seoDescription || post.subtitle}</p>
-            </div>
-          </div>
-        )}
 
-        {/* Structured Compact Author Dossier ("Sobre el autor") */}
-        <div className="max-w-[70ch] mx-auto mt-8 space-y-3">
-          <AuthorDossierCard
-            profile={isAdminIdentity ? adminIdentity : collabProfile}
-            isAdminIdentity={isAdminIdentity}
-            fallbackName={post.authorName}
-            verified={verified}
-            variant="compact"
-            onNavigateProfile={() => navigate(`/colaborador/${authorTargetId}`)}
-          />
-          {siteConfig.authorLiabilityNotice && (
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 px-1">
-              {siteConfig.authorLiabilityNotice}
-            </p>
-          )}
-        </div>
-
-        {/* Comments */}
-        <div className="max-w-[70ch] mx-auto">
-          {post.commentsEnabled === false ? (
-            <p className="mt-10 pt-6 border-t border-neutral-300 dark:border-neutral-800 text-sm text-neutral-500 text-center">
-              Los comentarios están deshabilitados para esta publicación.
-            </p>
-          ) : (
-            <Suspense
-              fallback={
-                <div className="mt-10 pt-6 border-t border-neutral-300 dark:border-neutral-800 text-xs text-neutral-500">
-                  Cargando conversación...
+            {showSharePreview && (
+              <div className="mt-4 rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] grid grid-cols-1 sm:grid-cols-12 overflow-hidden">
+                <div className="sm:col-span-4 aspect-[4/3]">
+                  <EditorialImage src={post.coverImage} alt={post.title} fallbackTitle={post.title} fallbackCategory={post.categoryName} />
                 </div>
-              }
-            >
-              <CommentsSection post={post} />
-            </Suspense>
-          )}
+                <div className="sm:col-span-8 p-4 space-y-1">
+                  <p className="text-[11px] font-display uppercase tracking-widest text-[var(--editorial-muted)]">
+                    {siteConfig.siteName} · Tarjeta para redes sociales
+                  </p>
+                  <p className="font-display text-lg font-bold leading-snug text-[var(--editorial-ink)]">{post.title}</p>
+                  <p className="text-xs text-[var(--editorial-muted)] line-clamp-2">{post.seoDescription || post.subtitle}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Ficha del autor */}
+            <div className="mt-8 space-y-3">
+              <AuthorDossierCard
+                profile={isAdminIdentity ? adminIdentity : collabProfile}
+                isAdminIdentity={isAdminIdentity}
+                fallbackName={post.authorName}
+                verified={verified}
+                variant="compact"
+                onNavigateProfile={() => navigate(`/colaborador/${authorTargetId}`)}
+              />
+              {siteConfig.authorLiabilityNotice && (
+                <p className="text-xs text-[var(--editorial-muted)] px-1">{siteConfig.authorLiabilityNotice}</p>
+              )}
+            </div>
+
+            {/* Comentarios */}
+            <div>
+              {post.commentsEnabled === false ? (
+                <p className="mt-10 pt-6 border-t border-[var(--editorial-border)] text-sm text-[var(--editorial-muted)] text-center">
+                  Los comentarios están deshabilitados para esta publicación.
+                </p>
+              ) : (
+                <Suspense
+                  fallback={
+                    <div className="mt-10 pt-6 border-t border-[var(--editorial-border)] text-xs text-[var(--editorial-muted)]">
+                      Cargando conversación...
+                    </div>
+                  }
+                >
+                  <CommentsSection post={post} />
+                </Suspense>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Related Articles */}
+        {/* Artículos relacionados */}
         {relatedPosts.length > 0 && (
-          <section className="mt-14 pt-10 border-t-2 border-[#111111] dark:border-neutral-700 space-y-6">
-            <h2 className="font-display text-2xl font-extrabold uppercase tracking-tight">
-              Artículos relacionados
-            </h2>
+          <section className="mt-14 pt-10 border-t-2 border-[var(--editorial-ink)]/80 space-y-6">
+            <SectionHeader kicker="Sigue leyendo" title="Artículos relacionados" />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {relatedPosts.map((rp) => (
                 <ArticleCard key={rp.id} post={rp} />
@@ -1702,7 +1800,7 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         )}
       </div>
 
-      {/* Unified Zoom + Swipe Gallery / Infographic / Standalone Image Lightbox */}
+      {/* Lightbox unificado */}
       <GalleryLightbox
         isOpen={Boolean(
           (infographicOpen && post.coverImage) ||
@@ -1738,7 +1836,6 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         }}
       />
 
-      {/* Quote Share Modal */}
       {quoteShare && (
         <Suspense fallback={null}>
           <QuoteShareModal
@@ -1753,106 +1850,98 @@ export const ArticleView: React.FC<{ slug: string }> = ({ slug }) => {
         </Suspense>
       )}
 
-      {/* Report Content Modal */}
-      {reportOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-2xl bg-[#F8F6F1] dark:bg-[#161616] border border-neutral-300 dark:border-neutral-700 p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="font-display text-2xl font-extrabold uppercase">Denunciar contenido</h3>
-              <button type="button" onClick={() => setReportOpen(false)} className="p-1.5 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleReportSubmit} className="space-y-3">
-              <input
-                type="text"
-                name="report_hp"
-                tabIndex={-1}
-                autoComplete="off"
-                value={reportHoneypot}
-                onChange={(e) => setReportHoneypot(e.target.value)}
-                className="hidden"
-                aria-hidden="true"
-              />
-              <div>
-                <label className="block font-display text-xs font-bold uppercase mb-1">Motivo</label>
-                <select
-                  value={reportReason}
-                  onChange={(e) => setReportReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                >
-                  <option>Información inexacta o descontextualizada</option>
-                  <option>Solicitud de rectificación o derecho a réplica</option>
-                  <option>Infracción de derechos de autor</option>
-                  <option>Discurso de odio o acoso</option>
-                </select>
-              </div>
-              <div>
-                <label className="block font-display text-xs font-bold uppercase mb-1">Tu nombre</label>
-                <input
-                  type="text"
-                  required
-                  minLength={2}
-                  maxLength={120}
-                  value={reportName}
-                  onChange={(e) => setReportName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block font-display text-xs font-bold uppercase mb-1">Tu correo</label>
-                <input
-                  type="email"
-                  required
-                  minLength={5}
-                  maxLength={200}
-                  value={reportEmail}
-                  onChange={(e) => setReportEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block font-display text-xs font-bold uppercase mb-1">Detalles</label>
-                <textarea
-                  required
-                  rows={3}
-                  minLength={5}
-                  maxLength={3000}
-                  value={reportDetails}
-                  onChange={(e) => setReportDetails(e.target.value)}
-                  placeholder="Describe el problema o la rectificación solicitada..."
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                />
-              </div>
-              {!firebaseUser && (
-                <div>
-                  <label className="block font-display text-xs font-bold uppercase mb-1">
-                    Verificación antispam: {reportChallenge.question}
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    inputMode="numeric"
-                    value={reportChallengeAns}
-                    onChange={(e) => setReportChallengeAns(e.target.value)}
-                    placeholder="Respuesta numérica"
-                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
-                  />
-                </div>
-              )}
-              {reportErr && <p role="alert" className="text-xs text-red-600">{reportErr}</p>}
-              <button
-                type="submit"
-                disabled={reportSubmitting}
-                className="w-full py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-xs cursor-pointer disabled:opacity-60"
-              >
-                {reportSubmitting ? 'Enviando reporte...' : 'Enviar reporte a administración'}
-              </button>
-              {reportDone && <p className="text-xs text-emerald-600">{reportDone}</p>}
-            </form>
+      {/* Modal de denuncia */}
+      <EditorialModal
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        kicker="Transparencia editorial"
+        title="Denunciar contenido"
+        maxWidthClass="max-w-md"
+      >
+        <form onSubmit={handleReportSubmit} className="space-y-3">
+          <input
+            type="text"
+            name="report_hp"
+            tabIndex={-1}
+            autoComplete="off"
+            value={reportHoneypot}
+            onChange={(e) => setReportHoneypot(e.target.value)}
+            className="hidden"
+            aria-hidden="true"
+          />
+          <div>
+            <label className="block font-display text-xs font-bold uppercase mb-1">Motivo</label>
+            <select
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              className={editorialInputClass}
+            >
+              <option>Información inexacta o descontextualizada</option>
+              <option>Solicitud de rectificación o derecho a réplica</option>
+              <option>Infracción de derechos de autor</option>
+              <option>Discurso de odio o acoso</option>
+            </select>
           </div>
-        </div>
-      )}
+          <div>
+            <label className="block font-display text-xs font-bold uppercase mb-1">Tu nombre</label>
+            <input
+              type="text"
+              required
+              minLength={2}
+              maxLength={120}
+              value={reportName}
+              onChange={(e) => setReportName(e.target.value)}
+              className={editorialInputClass}
+            />
+          </div>
+          <div>
+            <label className="block font-display text-xs font-bold uppercase mb-1">Tu correo</label>
+            <input
+              type="email"
+              required
+              minLength={5}
+              maxLength={200}
+              value={reportEmail}
+              onChange={(e) => setReportEmail(e.target.value)}
+              className={editorialInputClass}
+            />
+          </div>
+          <div>
+            <label className="block font-display text-xs font-bold uppercase mb-1">Detalles</label>
+            <textarea
+              required
+              rows={3}
+              minLength={5}
+              maxLength={3000}
+              value={reportDetails}
+              onChange={(e) => setReportDetails(e.target.value)}
+              placeholder="Describe el problema o la rectificación solicitada..."
+              className={editorialInputClass}
+            />
+          </div>
+          {!firebaseUser && (
+            <div>
+              <label className="block font-display text-xs font-bold uppercase mb-1">
+                Verificación antispam: {reportChallenge.question}
+              </label>
+              <input
+                type="number"
+                required
+                inputMode="numeric"
+                value={reportChallengeAns}
+                onChange={(e) => setReportChallengeAns(e.target.value)}
+                placeholder="Respuesta numérica"
+                className={editorialInputClass}
+              />
+            </div>
+          )}
+          {reportErr && <EditorialNotice tone="error">{reportErr}</EditorialNotice>}
+          <EditorialButton type="submit" disabled={reportSubmitting} className="w-full">
+            {reportSubmitting ? 'Enviando reporte...' : 'Enviar reporte a administración'}
+          </EditorialButton>
+          {reportDone && <EditorialNotice tone="success">{reportDone}</EditorialNotice>}
+        </form>
+      </EditorialModal>
     </article>
   );
 };

@@ -18,6 +18,7 @@ import { checkActionCooldown, generateSpamChallenge, markActionCooldown } from '
 import { db } from '../lib/firebase';
 import { formatDateEs, generateId } from '../lib/utils';
 import { CommentItem, Post } from '../types/editorial';
+import { EditorialButton, EditorialNotice, editorialInputClass } from './ui/EditorialPrimitives';
 import { VerifiedBadge } from './VerifiedBadge';
 
 interface CommentsSectionProps {
@@ -245,20 +246,25 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
     return (
       <div
         key={c.id}
-        className={`${depth > 0 ? 'ml-6 sm:ml-10 pl-4 border-l border-neutral-300 dark:border-neutral-700' : 'border-b border-neutral-200 dark:border-neutral-800'} py-4`}
+        className={`${
+          depth > 0
+            ? 'ml-5 sm:ml-9 pl-4 border-l border-[var(--editorial-border)]'
+            : 'border-b border-[var(--editorial-border)]'
+        } py-4`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-display font-bold uppercase tracking-wide text-sm text-[#111111] dark:text-white inline-flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-display font-bold uppercase tracking-wide text-sm text-[var(--editorial-ink)] inline-flex items-center gap-1.5">
               <span>{c.authorName}</span>
               {verifiedCommenter && <VerifiedBadge size="xs" />}
             </span>
-            <span className="text-neutral-500">
-              {c.authorIsAnonymous ? 'Lector invitado' : c.authorIsAdmin ? 'Redacción' : 'Cuenta verificada'} · {formatDateEs(c.createdAt, true)}
+            <span className="text-[var(--editorial-muted)]">
+              {c.authorIsAnonymous ? 'Lector invitado' : c.authorIsAdmin ? 'Redacción' : 'Cuenta verificada'} ·{' '}
+              {formatDateEs(c.createdAt, true)}
             </span>
             {c.status !== 'approved' && (
-              <span className="text-[11px] font-display font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                [{c.status === 'pending' ? 'Pendiente' : c.status === 'spam' ? 'Spam' : 'Oculto'}]
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-[11px] font-display font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                {c.status === 'pending' ? 'Pendiente' : c.status === 'spam' ? 'Spam' : 'Oculto'}
               </span>
             )}
           </div>
@@ -269,7 +275,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
                 <button
                   type="button"
                   onClick={() => handleModStatus(c, 'approved')}
-                  className="px-2 py-1 border border-emerald-600 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white cursor-pointer flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-full border border-emerald-600/50 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white cursor-pointer flex items-center gap-1 transition-colors"
                 >
                   <Check className="w-3 h-3" /> Aprobar
                 </button>
@@ -278,7 +284,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
                 <button
                   type="button"
                   onClick={() => handleModStatus(c, 'hidden')}
-                  className="px-2 py-1 border border-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-full border border-[var(--editorial-border)] hover:bg-[var(--editorial-surface-subtle)] cursor-pointer flex items-center gap-1 transition-colors"
                 >
                   <EyeOff className="w-3 h-3" /> Ocultar
                 </button>
@@ -286,7 +292,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
               <button
                 type="button"
                 onClick={() => handleModStatus(c, 'spam')}
-                className="px-2 py-1 border border-amber-500 text-amber-700 dark:text-amber-400 hover:bg-amber-600 hover:text-white cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 rounded-full border border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-600 hover:text-white cursor-pointer flex items-center gap-1 transition-colors"
               >
                 <ShieldAlert className="w-3 h-3" /> Spam
               </button>
@@ -294,15 +300,19 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
           )}
         </div>
 
-        <p className="mt-2 text-base text-neutral-800 dark:text-neutral-200 leading-relaxed whitespace-pre-wrap">
+        <p className="mt-2 text-base text-[var(--editorial-ink)]/90 leading-relaxed whitespace-pre-wrap">
           {c.text}
         </p>
 
-        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-neutral-500 dark:text-neutral-400">
+        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[var(--editorial-muted)]">
           <button
             type="button"
             onClick={() => handleLike(c)}
-            className={`inline-flex items-center gap-1 cursor-pointer ${likedIds.includes(c.id) ? 'text-[var(--editorial-primary)] font-bold' : 'hover:text-black dark:hover:text-white'}`}
+            className={`inline-flex items-center gap-1 cursor-pointer transition-colors ${
+              likedIds.includes(c.id)
+                ? 'text-[var(--editorial-primary)] font-bold'
+                : 'hover:text-[var(--editorial-ink)]'
+            }`}
           >
             <ThumbsUp className="w-3.5 h-3.5" aria-hidden="true" />
             <span className="font-tabular">{c.likesCount || 0}</span>
@@ -315,7 +325,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
                 setReplyTo(c);
                 textareaRef.current?.focus();
               }}
-              className="inline-flex items-center gap-1 hover:text-black dark:hover:text-white cursor-pointer"
+              className="inline-flex items-center gap-1 hover:text-[var(--editorial-ink)] cursor-pointer transition-colors"
             >
               <Reply className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Responder</span>
@@ -325,7 +335,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
           <button
             type="button"
             onClick={() => handleReport(c)}
-            className="inline-flex items-center gap-1 hover:text-red-600 cursor-pointer"
+            className="inline-flex items-center gap-1 hover:text-red-600 cursor-pointer transition-colors"
           >
             <Flag className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Reportar</span>
@@ -343,23 +353,19 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
           )}
         </div>
 
-        {replies.length > 0 && (
-          <div className="mt-2">
-            {replies.map((r) => renderComment(r, depth + 1))}
-          </div>
-        )}
+        {replies.length > 0 && <div className="mt-2">{replies.map((r) => renderComment(r, depth + 1))}</div>}
       </div>
     );
   };
 
   return (
-    <section id="comentarios" className="mt-14 pt-10 border-t-2 border-[#111111] dark:border-neutral-700">
-      <div className="flex items-center justify-between gap-4 mb-6">
-        <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+    <section id="comentarios" className="mt-14 pt-10 border-t-2 border-[var(--editorial-ink)]/80">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <h2 className="font-display text-2xl sm:text-3xl font-extrabold uppercase tracking-tight flex items-center gap-2 text-[var(--editorial-ink)]">
           <MessageSquare className="w-5 h-5 text-[var(--editorial-primary)]" aria-hidden="true" />
           <span>Debate y comentarios ({comments.filter((c) => c.status === 'approved').length})</span>
         </h2>
-        <span className="text-xs font-display uppercase tracking-wider text-neutral-500">
+        <span className="text-xs font-display uppercase tracking-wider text-[var(--editorial-muted)]">
           {!commentsAllowed
             ? 'Comentarios cerrados'
             : siteConfig.commentModerationMode === 'pre'
@@ -369,11 +375,14 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
       </div>
 
       {!commentsAllowed && !canModerate ? (
-        <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 text-sm text-neutral-600 dark:text-neutral-400">
+        <EditorialNotice>
           Los comentarios se encuentran deshabilitados en esta publicación por decisión editorial.
-        </div>
+        </EditorialNotice>
       ) : (
-        <form onSubmit={handleSubmit} className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 sm:p-6 space-y-4 shadow-sm">
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-4 shadow-xs"
+        >
           <input
             type="text"
             name="website_hp"
@@ -386,34 +395,38 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
           />
 
           {replyTo && (
-            <div className="flex items-center justify-between rounded-xl bg-neutral-100 dark:bg-neutral-900 px-3.5 py-2 text-xs">
+            <div className="flex items-center justify-between rounded-xl bg-[var(--editorial-surface-subtle)] border border-[var(--editorial-border)] px-3.5 py-2 text-xs">
               <span>
                 Respondiendo a <strong>{replyTo.authorName}</strong>
               </span>
-              <button type="button" onClick={() => setReplyTo(null)} className="text-red-600 hover:underline cursor-pointer font-semibold">
+              <button
+                type="button"
+                onClick={() => setReplyTo(null)}
+                className="text-[var(--editorial-primary)] hover:underline cursor-pointer font-semibold"
+              >
                 Cancelar
               </button>
             </div>
           )}
 
           {!firebaseUser && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--editorial-border)]">
               {siteConfig.allowAnonymousComments ? (
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1">
+                    <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1 text-[var(--editorial-ink)]">
                       Tu nombre visible (sin registro)
                     </label>
                     <input
                       type="text"
                       value={guestName}
                       onChange={(e) => setGuestName(e.target.value)}
-                      placeholder="Ej. Lector de Medellín"
-                      className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
+                      placeholder="Ej. Lector de Ibagué"
+                      className={editorialInputClass}
                     />
                   </div>
                   <div>
-                    <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1">
+                    <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1 text-[var(--editorial-ink)]">
                       Verificación antispam: {challenge.question}
                     </label>
                     <input
@@ -423,29 +436,32 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
                       value={challengeAnswer}
                       onChange={(e) => setChallengeAnswer(e.target.value)}
                       placeholder="Respuesta numérica"
-                      className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
+                      className={editorialInputClass}
                     />
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                <p className="text-sm text-[var(--editorial-muted)]">
                   Inicia sesión con tu correo o Google para participar en el debate.
                 </p>
               )}
 
-              <button
-                type="button"
+              <EditorialButton
+                variant="secondary"
+                size="md"
                 onClick={() => setAuthModalOpen(true)}
-                className="px-4 py-2 rounded-full border border-[#111111] dark:border-neutral-600 font-display text-xs font-bold uppercase tracking-wider hover:bg-[#111111] hover:text-white dark:hover:bg-white dark:hover:text-black cursor-pointer self-start sm:self-end transition-colors"
+                className="self-start sm:self-end shrink-0"
               >
                 Ingresar con correo o Google
-              </button>
+              </EditorialButton>
             </div>
           )}
 
           <div>
-            <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1.5">
-              {firebaseUser ? `Comentar como ${userAccount?.displayName || firebaseUser.displayName || firebaseUser.email}` : 'Escribe tu comentario'}
+            <label className="block font-display text-xs uppercase tracking-wider font-semibold mb-1.5 text-[var(--editorial-ink)]">
+              {firebaseUser
+                ? `Comentar como ${userAccount?.displayName || firebaseUser.displayName || firebaseUser.email}`
+                : 'Escribe tu comentario'}
             </label>
             <textarea
               ref={textareaRef}
@@ -454,35 +470,26 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({ post }) => {
               onChange={(e) => setText(e.target.value)}
               maxLength={2000}
               placeholder="Aporta un análisis respetuoso y argumentado..."
-              className="w-full p-3.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1D1D1D] border border-neutral-300 dark:border-neutral-700 text-sm focus:outline-none focus:border-[var(--editorial-primary)]"
+              className={editorialInputClass}
             />
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-xs text-neutral-500 font-tabular">
+            <span className="text-xs text-[var(--editorial-muted)] font-tabular">
               {text.length}/2000 caracteres
             </span>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="px-6 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display font-bold uppercase tracking-wider text-xs cursor-pointer disabled:opacity-60 transition-colors"
-            >
+            <EditorialButton type="submit" disabled={submitting} size="md">
               {submitting ? 'Enviando...' : replyTo ? 'Publicar respuesta' : 'Publicar comentario'}
-            </button>
+            </EditorialButton>
           </div>
 
-          {notice && (
-            <p role="status" className={`text-xs font-medium ${notice.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'}`}>
-              {notice.text}
-            </p>
-          )}
+          {notice && <EditorialNotice tone={notice.ok ? 'success' : 'error'}>{notice.text}</EditorialNotice>}
         </form>
       )}
 
-      {/* Comments List */}
       <div className="mt-6">
         {topLevelComments.length === 0 ? (
-          <p className="py-8 text-center text-sm text-neutral-500">
+          <p className="py-8 text-center text-sm text-[var(--editorial-muted)]">
             {commentsAllowed
               ? 'Aún no hay comentarios en esta publicación. Sé la primera persona en abrir el debate.'
               : 'No se registraron comentarios en esta publicación.'}

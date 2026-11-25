@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   collection,
   deleteDoc,
@@ -13,20 +13,27 @@ import {
 } from 'firebase/firestore';
 import {
   BarChart3,
+  CheckCircle2,
+  Clock,
   Copy,
   Edit3,
   Eye,
   EyeOff,
+  FileEdit,
+  KeyRound,
   Lock,
   MessageSquare,
   Plus,
   Reply,
+  Search,
+  Send,
   Trash2,
   Upload,
   User,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/SiteContext';
+import { checkActionCooldown, markActionCooldown } from '../lib/appCheck';
 import { db } from '../lib/firebase';
 import {
   buildCleanDuplicatePostPayload,
@@ -43,13 +50,22 @@ import {
   OutletType,
   PoliticalAffiliationChoice,
   Post,
+  PostStatus,
 } from '../types/editorial';
 import { EditorialImage } from './EditorialImage';
+import {
+  EditorialButton,
+  EditorialNotice,
+  EditorialStatCard,
+  EmptyState,
+  FilterChip,
+  editorialInputClass,
+} from './ui/EditorialPrimitives';
 import { VerifiedBadge } from './VerifiedBadge';
 
 const BlockEditor = lazy(() => import('./BlockEditor').then((m) => ({ default: m.BlockEditor })));
 
-type CollabTab = 'posts' | 'comments' | 'profile' | 'stats';
+type CollabTab = 'posts' | 'comments' | 'profile' | 'stats' | 'permissions';
 
 const DEFAULT_PRIVACY_FLAGS: Required<CollaboratorPrivacyFlags> = {
   showInDirectory: false,
@@ -73,6 +89,44 @@ const DEFAULT_PRIVACY_FLAGS: Required<CollaboratorPrivacyFlags> = {
   showPoliticalPartyLogo: false,
 };
 
+function renderPostStatusBadge(status: PostStatus) {
+  const map: Record<PostStatus, { label: string; cls: string; Icon: typeof CheckCircle2 }> = {
+    published: {
+      label: 'Publicada',
+      cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-600/30',
+      Icon: CheckCircle2,
+    },
+    in_review: {
+      label: 'En revisión',
+      cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/35',
+      Icon: Clock,
+    },
+    draft: {
+      label: 'Borrador',
+      cls: 'bg-[var(--editorial-surface-subtle)] text-[var(--editorial-muted)] border-[var(--editorial-border)]',
+      Icon: FileEdit,
+    },
+    scheduled: {
+      label: 'Programada',
+      cls: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30',
+      Icon: Clock,
+    },
+    unpublished: {
+      label: 'Retirada',
+      cls: 'bg-neutral-500/15 text-[var(--editorial-muted)] border-[var(--editorial-border)]',
+      Icon: EyeOff,
+    },
+  };
+  const cfg = map[status] || map.draft;
+  const Icon = cfg.Icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-display font-bold uppercase tracking-wider ${cfg.cls}`}>
+      <Icon className="w-3 h-3" aria-hidden="true" />
+      <span>{cfg.label}</span>
+    </span>
+  );
+}
+
 export const CollaboratorPanel: React.FC = () => {
   const { firebaseUser, userAccount, collaboratorProfile, isActiveCollaborator, isCollaborator, refreshUserDocs } =
     useAuth();
@@ -84,6 +138,17 @@ export const CollaboratorPanel: React.FC = () => {
   const [ownAnalytics, setOwnAnalytics] = useState<AnalyticsEvent[]>([]);
   const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
+
+  // Filters for posts list
+  const [postQuery, setPostQuery] = useState('');
+  const [postStatusFilter, setPostStatusFilter] = useState<'all' | PostStatus>('all');
+
+  // Permission / revision request form (persists safely to reports_and_rectifications)
+  const [permCategory, setPermCategory] = useState('Publicación directa sin pre-revisión');
+  const [permDetails, setPermDetails] = useState('');
+  const [permSending, setPermSending] = useState(false);
+  const [permMsg, setPermMsg] = useState('');
+  const [permErr, setPermErr] = useState('');
 
   // Private & public profile fields (all privacy toggles OFF by default)
   const [name, setName] = useState(collaboratorProfile?.name || '');
@@ -119,7 +184,6 @@ export const CollaboratorPanel: React.FC = () => {
   const [profileErr, setProfileErr] = useState('');
   const [panelError, setPanelError] = useState('');
 
-  // Load private collaborator_settings first, falling back to public profile defaults
   useEffect(() => {
     if (!firebaseUser) return;
     let cancelled = false;
@@ -203,66 +267,70 @@ export const CollaboratorPanel: React.FC = () => {
     };
   }, [firebaseUser, isActiveCollaborator]);
 
+  const filteredPosts = useMemo(() => {
+    const q = postQuery.trim().toLowerCase();
+    return myPosts.filter((p) => {
+      if (postStatusFilter !== 'all' && p.status !== postStatusFilter) return false;
+      if (!q) return true;
+      return `${p.title} ${p.categoryName} ${p.type}`.toLowerCase().includes(q);
+    });
+  }, [myPosts, postQuery, postStatusFilter]);
+
   if (!firebaseUser) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4">
-        <h1 className="font-display text-3xl font-extrabold uppercase">Panel de Colaboradores</h1>
-        <p className="text-neutral-600 dark:text-neutral-400">
-          Inicia sesión con tu cuenta de colaborador o regístrate con tu código de invitación.
-        </p>
-        <div className="flex justify-center gap-3">
-          <button
-            type="button"
-            onClick={() => setAuthModalOpen(true)}
-            className="px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] text-white font-display font-bold uppercase text-xs cursor-pointer"
-          >
-            Iniciar sesión
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/unete')}
-            className="px-5 py-2.5 rounded-full border border-neutral-400 font-display font-bold uppercase text-xs cursor-pointer"
-          >
-            Registrarme con código
-          </button>
-        </div>
+      <main className="max-w-3xl mx-auto px-4 py-16">
+        <EmptyState
+          icon={<User className="w-6 h-6" />}
+          kicker="Redacción colaborativa"
+          title="Panel de Colaboradores"
+          description="Inicia sesión con tu cuenta de colaborador o regístrate con tu código de invitación."
+          action={
+            <div className="flex flex-wrap justify-center gap-3">
+              <EditorialButton onClick={() => setAuthModalOpen(true)}>Iniciar sesión</EditorialButton>
+              <EditorialButton variant="secondary" onClick={() => navigate('/unete')}>
+                Registrarme con código
+              </EditorialButton>
+            </div>
+          }
+        />
       </main>
     );
   }
 
   if (!isCollaborator) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4">
-        <h1 className="font-display text-3xl font-extrabold uppercase">Acceso restringido a colaboradores</h1>
-        <p className="text-neutral-600 dark:text-neutral-400">
-          Tu cuenta actual tiene rol de lector. Para publicar contenidos necesitas registrarte mediante código de invitación.
-        </p>
-        <button
-          type="button"
-          onClick={() => navigate('/unete')}
-          className="px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] text-white font-display font-bold uppercase text-xs cursor-pointer"
-        >
-          Ir a registro de colaborador
-        </button>
+      <main className="max-w-3xl mx-auto px-4 py-16">
+        <EmptyState
+          icon={<Lock className="w-6 h-6" />}
+          kicker="Acceso restringido"
+          title="Cuenta de lector"
+          description="Tu cuenta actual tiene rol de lector. Para publicar contenidos necesitas registrarte mediante código de invitación."
+          action={<EditorialButton onClick={() => navigate('/unete')}>Ir a registro de colaborador</EditorialButton>}
+        />
       </main>
     );
   }
 
   if (!isActiveCollaborator) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4 rounded-2xl border border-neutral-300 dark:border-neutral-800 my-10 p-8">
-        <h1 className="font-display text-3xl font-extrabold uppercase">
-          Estado de cuenta: {userAccount?.status === 'suspended' ? 'Suspendida' : 'Pendiente de aprobación'}
-        </h1>
-        <p className="text-neutral-600 dark:text-neutral-400">
-          {userAccount?.status === 'suspended'
-            ? 'Tu acceso editorial se encuentra temporalmente suspendido por la administración.'
-            : 'Tu solicitud fue verificada con el código de invitación y está en revisión por la administración del medio.'}
-        </p>
+      <main className="max-w-3xl mx-auto px-4 py-16">
+        <EmptyState
+          icon={<Clock className="w-6 h-6" />}
+          kicker="Estado de verificación"
+          title={`Cuenta: ${userAccount?.status === 'suspended' ? 'Suspendida' : 'Pendiente de aprobación'}`}
+          description={
+            userAccount?.status === 'suspended'
+              ? 'Tu acceso editorial se encuentra temporalmente suspendido por la administración.'
+              : 'Tu solicitud fue verificada con el código de invitación y está en revisión por la administración del medio.'
+          }
+        />
       </main>
     );
   }
 
+  const publishedCount = myPosts.filter((p) => p.status === 'published').length;
+  const reviewCount = myPosts.filter((p) => p.status === 'in_review').length;
+  const draftCount = myPosts.filter((p) => p.status === 'draft').length;
   const totalViews = myPosts.reduce((acc, p) => acc + (p.viewCount || 0), 0);
   const avgReadSec = ownAnalytics.length
     ? Math.round(ownAnalytics.reduce((a, e) => a + (e.readDurationSec || 0), 0) / ownAnalytics.length)
@@ -350,7 +418,6 @@ export const CollaboratorPanel: React.FC = () => {
     const cleanEmail = publicEmail.trim().slice(0, 200);
     const cleanLocation = location.trim().slice(0, 120);
 
-    // 1. Save full draft, sensitive birthYear & Ley 1581 consent into private /collaborator_settings/{uid}
     const settingsDoc: Record<string, unknown> = {
       uid: firebaseUser.uid,
       name: cleanName,
@@ -381,7 +448,6 @@ export const CollaboratorPanel: React.FC = () => {
     };
     await setDoc(doc(db, 'collaborator_settings', firebaseUser.uid), settingsDoc);
 
-    // 2. Reconstruct clean /collaborators_public/{uid} keeping admin-managed fields intact and stripping ALL hidden/private fields
     const existingPublic = collaboratorProfile;
     const publicDoc: Record<string, unknown> = {
       uid: firebaseUser.uid,
@@ -530,10 +596,60 @@ export const CollaboratorPanel: React.FC = () => {
     }
   };
 
+  const handlePermissionRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPermMsg('');
+    setPermErr('');
+    const cd = checkActionCooldown(`perm_req_${firebaseUser.uid}`, 30000);
+    if (!cd.allowed) {
+      setPermErr(`Espera ${cd.remainingSec} segundos antes de enviar otra solicitud.`);
+      return;
+    }
+    const cleanDetails = permDetails.trim().slice(0, 2800);
+    if (cleanDetails.length < 10) {
+      setPermErr('Explica brevemente tu solicitud (mínimo 10 caracteres).');
+      return;
+    }
+    const reporterName = (collaboratorProfile?.name || userAccount?.displayName || 'Colaborador')
+      .trim()
+      .slice(0, 120);
+    const reporterEmail = (firebaseUser.email || userAccount?.email || 'colaborador@revista.local')
+      .trim()
+      .slice(0, 200);
+
+    setPermSending(true);
+    try {
+      const id = generateId('req');
+      await setDoc(doc(db, 'reports_and_rectifications', id), {
+        id,
+        type: 'rectificacion',
+        reporterName: reporterName.length >= 2 ? reporterName : 'Colaborador',
+        reporterEmail: reporterEmail.includes('@') ? reporterEmail : 'colaborador@revista.local',
+        reason: `Solicitud de permisos: ${permCategory}`.slice(0, 200),
+        details: `[UID: ${firebaseUser.uid}] ${cleanDetails}`.slice(0, 3000),
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+      markActionCooldown(`perm_req_${firebaseUser.uid}`);
+      setPermDetails('');
+      setPermMsg('Solicitud enviada al equipo de administración. Recibirás respuesta en tu bandeja editorial.');
+    } catch {
+      setPermErr('No se pudo registrar la solicitud en este momento.');
+    } finally {
+      setPermSending(false);
+    }
+  };
+
   if (editingPost !== undefined) {
     return (
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <Suspense fallback={<div className="py-12 text-center text-sm text-neutral-500">Cargando editor editorial...</div>}>
+        <Suspense
+          fallback={
+            <div className="py-12 text-center text-sm text-[var(--editorial-muted)]">
+              Cargando editor editorial...
+            </div>
+          }
+        >
           <BlockEditor
             initialPost={editingPost}
             onSaved={() => setEditingPost(undefined)}
@@ -554,10 +670,10 @@ export const CollaboratorPanel: React.FC = () => {
       <button
         type="button"
         onClick={() => toggleFlag(key)}
-        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-display font-bold uppercase cursor-pointer ${
+        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-display font-bold uppercase cursor-pointer transition-colors ${
           active
-            ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300'
-            : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
+            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+            : 'bg-[var(--editorial-surface-subtle)] text-[var(--editorial-muted)]'
         }`}
       >
         {active ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -567,85 +683,121 @@ export const CollaboratorPanel: React.FC = () => {
   };
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
-      <div className="border-b-2 border-[#111111] dark:border-neutral-700 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <main className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-fade-up">
+      <header className="border-b-2 border-[var(--editorial-ink)]/85 pb-5 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+          <p className="font-display text-xs font-bold uppercase tracking-[0.14em] text-[var(--editorial-primary)]">
             Panel autónomo de colaborador
           </p>
-          <h1 className="font-display text-3xl sm:text-4xl font-extrabold uppercase tracking-tight flex items-center gap-2">
+          <h1 className="font-display text-3xl sm:text-4xl font-extrabold uppercase tracking-tight flex items-center gap-2 text-[var(--editorial-ink)]">
             <span>{collaboratorProfile?.name || userAccount?.displayName}</span>
             {isVerifiedCollab && <VerifiedBadge size="md" />}
           </h1>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(`/colaborador/${firebaseUser.uid}`)}
-            className="px-4 py-2 rounded-full border border-neutral-400 dark:border-neutral-700 font-display text-xs font-bold uppercase cursor-pointer"
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          <EditorialButton variant="secondary" size="md" onClick={() => navigate(`/colaborador/${firebaseUser.uid}`)}>
             Ver perfil público
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditingPost(null)}
-            className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase tracking-wider cursor-pointer"
-          >
+          </EditorialButton>
+          <EditorialButton size="md" onClick={() => setEditingPost(null)}>
             <Plus className="w-4 h-4" />
             <span>Nueva publicación</span>
-          </button>
+          </EditorialButton>
         </div>
-      </div>
+      </header>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2 border-b border-neutral-300 dark:border-neutral-800 pb-3 text-xs font-display font-bold uppercase tracking-wider">
+      {/* Resumen KPI */}
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Resumen editorial">
+        <EditorialStatCard label="Publicadas" value={publishedCount} accent icon={<CheckCircle2 className="w-4 h-4" />} />
+        <EditorialStatCard label="En revisión" value={reviewCount} icon={<Clock className="w-4 h-4" />} />
+        <EditorialStatCard label="Borradores" value={draftCount} icon={<FileEdit className="w-4 h-4" />} />
+        <EditorialStatCard
+          label="Lecturas totales"
+          value={totalViews.toLocaleString('es-CO')}
+          hint={`Promedio ${avgReadSec} s por visita`}
+          icon={<BarChart3 className="w-4 h-4" />}
+        />
+      </section>
+
+      {/* Pestañas */}
+      <nav aria-label="Secciones del panel" className="flex flex-wrap gap-2 border-b border-[var(--editorial-border)] pb-3">
         {(
           [
-            ['posts', 'Mis publicaciones', Edit3],
+            ['posts', `Publicaciones (${myPosts.length})`, Edit3],
             ['comments', `Comentarios (${ownComments.length})`, MessageSquare],
             ['profile', 'Mi perfil y privacidad', User],
             ['stats', 'Estadísticas', BarChart3],
+            ['permissions', 'Solicitar permisos', KeyRound],
           ] as const
         ).map(([key, label, Icon]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full cursor-pointer transition-colors ${
-              tab === key
-                ? 'bg-[#111111] text-white dark:bg-white dark:text-black'
-                : 'border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300'
-            }`}
-          >
+          <FilterChip key={key} active={tab === key} onClick={() => setTab(key)}>
             <Icon className="w-3.5 h-3.5" aria-hidden="true" />
             <span>{label}</span>
-          </button>
+          </FilterChip>
         ))}
-      </div>
+      </nav>
 
-      {panelError && (
-        <div role="alert" className="rounded-2xl p-3 border border-red-500 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-sm">
-          {panelError}
-        </div>
-      )}
+      {panelError && <EditorialNotice tone="error">{panelError}</EditorialNotice>}
 
       {tab === 'posts' && (
         <div className="space-y-4">
-          {myPosts.length === 0 ? (
-            <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-10 text-center space-y-3">
-              <p className="text-neutral-600 dark:text-neutral-400">Todavía no tienes publicaciones propias.</p>
-              <button
-                type="button"
-                onClick={() => setEditingPost(null)}
-                className="px-5 py-2.5 rounded-full bg-[var(--editorial-primary)] text-white font-display text-xs font-bold uppercase cursor-pointer"
+          {myPosts.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-[var(--editorial-muted)] absolute left-3.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
+                <input
+                  type="search"
+                  value={postQuery}
+                  onChange={(e) => setPostQuery(e.target.value)}
+                  placeholder="Filtrar tus publicaciones por título, categoría o formato..."
+                  className={`${editorialInputClass} !pl-10`}
+                />
+              </div>
+              <select
+                aria-label="Filtrar por estado"
+                value={postStatusFilter}
+                onChange={(e) => setPostStatusFilter(e.target.value as 'all' | PostStatus)}
+                className={`${editorialInputClass} sm:w-56`}
               >
-                Crear primera publicación
-              </button>
+                <option value="all">Todos los estados</option>
+                <option value="published">Publicadas</option>
+                <option value="in_review">En revisión</option>
+                <option value="draft">Borradores</option>
+                <option value="needs_correction">Requieren corrección</option>
+                <option value="scheduled">Programadas</option>
+                <option value="unpublished">Retiradas</option>
+              </select>
             </div>
+          )}
+
+          {myPosts.length === 0 ? (
+            <EmptyState
+              icon={<Edit3 className="w-6 h-6" />}
+              kicker="Tu escritorio editorial"
+              title="Todavía no tienes publicaciones"
+              description="Redacta crónicas, reportajes, columnas o entregas multimedia con el editor por bloques."
+              action={<EditorialButton onClick={() => setEditingPost(null)}>Crear primera publicación</EditorialButton>}
+            />
+          ) : filteredPosts.length === 0 ? (
+            <EmptyState
+              icon={<Search className="w-6 h-6" />}
+              title="Sin coincidencias"
+              description="No hay entregas que coincidan con el filtro aplicado."
+              action={
+                <EditorialButton
+                  variant="secondary"
+                  onClick={() => {
+                    setPostQuery('');
+                    setPostStatusFilter('all');
+                  }}
+                >
+                  Limpiar filtros
+                </EditorialButton>
+              }
+            />
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414]">
+            <div className="overflow-x-auto rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)]">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-neutral-300 dark:border-neutral-800 font-display text-xs uppercase tracking-wider">
+                <thead className="border-b border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)] font-display text-xs uppercase tracking-wider text-[var(--editorial-muted)]">
                   <tr>
                     <th className="px-4 py-3">Titular</th>
                     <th className="px-4 py-3">Formato</th>
@@ -654,22 +806,22 @@ export const CollaboratorPanel: React.FC = () => {
                     <th className="px-4 py-3 text-right">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                  {myPosts.map((p) => (
-                    <tr key={p.id}>
+                <tbody className="divide-y divide-[var(--editorial-border)]">
+                  {filteredPosts.map((p) => (
+                    <tr key={p.id} className="hover:bg-[var(--editorial-surface-subtle)]/60 transition-colors">
                       <td className="px-4 py-3 font-semibold max-w-sm">
                         <button
                           type="button"
                           onClick={() => navigate(`/articulo/${p.slug}`)}
-                          className="text-left hover:text-[var(--editorial-primary)] cursor-pointer"
+                          className="text-left hover:text-[var(--editorial-primary)] cursor-pointer text-[var(--editorial-ink)]"
                         >
                           {p.title}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-xs uppercase font-display">{p.type}</td>
-                      <td className="px-4 py-3 text-xs font-display uppercase">{p.status}</td>
-                      <td className="px-4 py-3 text-right font-tabular">{p.viewCount || 0}</td>
-                      <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                      <td className="px-4 py-3 text-xs uppercase font-display text-[var(--editorial-muted)]">{p.type}</td>
+                      <td className="px-4 py-3">{renderPostStatusBadge(p.status)}</td>
+                      <td className="px-4 py-3 text-right font-tabular">{(p.viewCount || 0).toLocaleString('es-CO')}</td>
+                      <td className="px-4 py-3 text-right space-x-2.5 whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => setEditingPost(p)}
@@ -680,7 +832,7 @@ export const CollaboratorPanel: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleDuplicatePost(p)}
-                          className="inline-flex items-center gap-1 text-xs font-display font-bold uppercase text-neutral-600 dark:text-neutral-300 hover:text-[var(--editorial-primary)] cursor-pointer"
+                          className="inline-flex items-center gap-1 text-xs font-display font-bold uppercase text-[var(--editorial-muted)] hover:text-[var(--editorial-primary)] cursor-pointer"
                         >
                           <Copy className="w-3 h-3" aria-hidden="true" />
                           <span>Duplicar</span>
@@ -712,16 +864,23 @@ export const CollaboratorPanel: React.FC = () => {
       {tab === 'comments' && (
         <div className="space-y-3">
           {ownComments.length === 0 ? (
-            <p className="text-sm text-neutral-500">No hay comentarios en tus publicaciones aún.</p>
+            <EmptyState
+              icon={<MessageSquare className="w-6 h-6" />}
+              title="Sin comentarios recibidos"
+              description="Cuando los lectores comenten tus publicaciones aparecerán aquí para moderación y respuesta."
+            />
           ) : (
             ownComments.map((c) => (
-              <div key={c.id} className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-4 space-y-3">
+              <div
+                key={c.id}
+                className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-4 space-y-3"
+              >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <p className="text-xs text-neutral-500">
-                      En <strong>{c.postTitle}</strong> · {c.authorName} · Estado: {c.status}
+                    <p className="text-xs text-[var(--editorial-muted)]">
+                      En <strong className="text-[var(--editorial-ink)]">{c.postTitle}</strong> · {c.authorName} · Estado: {c.status}
                     </p>
-                    <p className="text-sm mt-1">{c.text}</p>
+                    <p className="text-sm mt-1 text-[var(--editorial-ink)]">{c.text}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs font-display font-bold uppercase shrink-0">
                     <button
@@ -730,7 +889,7 @@ export const CollaboratorPanel: React.FC = () => {
                         setReplyTargetId(replyTargetId === c.id ? null : c.id);
                         setReplyText('');
                       }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 cursor-pointer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-[var(--editorial-border)] cursor-pointer hover:border-[var(--editorial-primary)]"
                     >
                       <Reply className="w-3 h-3" /> Responder
                     </button>
@@ -744,7 +903,7 @@ export const CollaboratorPanel: React.FC = () => {
                           setPanelError('No se pudo aprobar el comentario.');
                         }
                       }}
-                      className="px-2.5 py-1 rounded-full border border-emerald-600 text-emerald-600 cursor-pointer"
+                      className="px-2.5 py-1 rounded-full border border-emerald-600/50 text-emerald-700 dark:text-emerald-400 cursor-pointer"
                     >
                       Aprobar
                     </button>
@@ -758,7 +917,7 @@ export const CollaboratorPanel: React.FC = () => {
                           setPanelError('No se pudo ocultar el comentario.');
                         }
                       }}
-                      className="px-2.5 py-1 rounded-full border border-neutral-400 cursor-pointer"
+                      className="px-2.5 py-1 rounded-full border border-[var(--editorial-border)] cursor-pointer"
                     >
                       Ocultar
                     </button>
@@ -779,21 +938,17 @@ export const CollaboratorPanel: React.FC = () => {
                   </div>
                 </div>
                 {replyTargetId === c.id && (
-                  <div className="flex gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+                  <div className="flex gap-2 pt-2 border-t border-[var(--editorial-border)]">
                     <input
                       type="text"
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
                       placeholder="Escribe una respuesta pública..."
-                      className="flex-1 px-3 py-1.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      className={editorialInputClass}
                     />
-                    <button
-                      type="button"
-                      onClick={() => handleReplyToComment(c)}
-                      className="px-4 py-1.5 rounded-full bg-[var(--editorial-primary)] text-white text-xs font-display font-bold uppercase cursor-pointer"
-                    >
+                    <EditorialButton size="sm" onClick={() => handleReplyToComment(c)}>
                       Enviar
-                    </button>
+                    </EditorialButton>
                   </div>
                 )}
               </div>
@@ -803,15 +958,20 @@ export const CollaboratorPanel: React.FC = () => {
       )}
 
       {tab === 'profile' && (
-        <form onSubmit={handleSaveProfile} className="max-w-4xl rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-6 space-y-6">
-          <div className="space-y-1 border-b border-neutral-200 dark:border-neutral-800 pb-4">
-            <h2 className="font-display text-2xl font-extrabold uppercase">Mi perfil y privacidad pública</h2>
-            <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-              Toda información personal, laboral y política permanece oculta al público por defecto. Solo los campos cuyo interruptor marques como «Visible» aparecerán en tu ficha pública de autor. Tu año de nacimiento nunca se expone.
+        <form
+          onSubmit={handleSaveProfile}
+          className="max-w-4xl rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-6 space-y-6"
+        >
+          <div className="space-y-1 border-b border-[var(--editorial-border)] pb-4">
+            <h2 className="font-display text-2xl font-extrabold uppercase text-[var(--editorial-ink)]">
+              Mi perfil y privacidad pública
+            </h2>
+            <p className="text-xs text-[var(--editorial-muted)] leading-relaxed">
+              Toda información personal, laboral y política permanece oculta al público por defecto. Solo los campos cuyo interruptor marques como «Visible» aparecerán en tu ficha pública de autor.
             </p>
           </div>
 
-          <label className="flex items-start gap-3 p-4 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-[#F8F6F1] dark:bg-[#1A1A1A] cursor-pointer">
+          <label className="flex items-start gap-3 p-4 rounded-xl border border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)] cursor-pointer">
             <input
               type="checkbox"
               checked={flags.showInDirectory}
@@ -822,13 +982,12 @@ export const CollaboratorPanel: React.FC = () => {
               <strong className="font-display uppercase text-xs tracking-wider block">
                 Aparecer en el directorio «Conozcan a nuestros colaboradores»
               </strong>
-              <span className="text-xs text-neutral-600 dark:text-neutral-400">
+              <span className="text-xs text-[var(--editorial-muted)]">
                 Si está desactivado, tu perfil no se listará en el directorio público ni en la portada.
               </span>
             </span>
           </label>
 
-          {/* Identidad básica + edad calculada */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block font-display text-xs font-bold uppercase mb-1">Nombre público o del medio *</label>
@@ -839,7 +998,7 @@ export const CollaboratorPanel: React.FC = () => {
                 maxLength={120}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                className={editorialInputClass}
               />
             </div>
             <div>
@@ -847,13 +1006,13 @@ export const CollaboratorPanel: React.FC = () => {
               <select
                 value={outletType}
                 onChange={(e) => setOutletType(e.target.value as OutletType)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+                className={editorialInputClass}
               >
                 <option value="independiente">Periodista independiente</option>
                 <option value="medio">Medio o revista aliada</option>
               </select>
             </div>
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5">
+            <div className="rounded-xl border border-[var(--editorial-border)] p-3 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-display text-[11px] font-bold uppercase">Año nac. (solo edad)</span>
                 {renderTogglePill('showAge')}
@@ -865,25 +1024,24 @@ export const CollaboratorPanel: React.FC = () => {
                 value={birthYearInput}
                 onChange={(e) => setBirthYearInput(e.target.value)}
                 placeholder={`1900 - ${maxBirthYear}`}
-                className="w-full px-3 py-1.5 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                className={editorialInputClass}
               />
               {computedAge !== null && (
-                <p className="text-[10px] text-neutral-500">
-                  Edad calculada: <strong>{computedAge} años</strong> (nunca se muestra el año exacto)
+                <p className="text-[10px] text-[var(--editorial-muted)]">
+                  Edad calculada: <strong>{computedAge} años</strong>
                 </p>
               )}
             </div>
           </div>
 
-          {/* Avatar + privacy switch */}
-          <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-3">
+          <div className="rounded-xl border border-[var(--editorial-border)] p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-display text-xs font-bold uppercase">Foto de perfil o logotipo (recorte 1:1)</span>
+              <span className="font-display text-xs font-bold uppercase">Foto de perfil o logotipo (1:1)</span>
               {renderTogglePill('showAvatar', 'Visible públicamente', 'Oculto')}
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {avatarUrl && (
-                <div className="w-12 h-12 rounded-full overflow-hidden border border-neutral-300 dark:border-neutral-700 shrink-0">
+                <div className="w-12 h-12 rounded-full overflow-hidden border border-[var(--editorial-border)] shrink-0">
                   <EditorialImage src={avatarUrl} alt={name} fallbackTitle={name} allowInDataSaver />
                 </div>
               )}
@@ -892,9 +1050,9 @@ export const CollaboratorPanel: React.FC = () => {
                 value={avatarUrl}
                 onChange={(e) => setAvatarUrl(e.target.value)}
                 placeholder="URL de imagen o sube un archivo"
-                className="flex-1 min-w-[200px] px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                className={`${editorialInputClass} flex-1 min-w-[200px]`}
               />
-              <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black text-xs font-display font-bold uppercase cursor-pointer">
+              <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--editorial-ink)] text-[var(--editorial-paper)] text-xs font-display font-bold uppercase cursor-pointer">
                 <Upload className="w-3.5 h-3.5" />
                 <span>Subir</span>
                 <input
@@ -925,14 +1083,13 @@ export const CollaboratorPanel: React.FC = () => {
               </label>
             </div>
             {avatarProgress !== null && (
-              <div className="h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+              <div className="h-1.5 rounded-full bg-[var(--editorial-surface-subtle)] overflow-hidden">
                 <div className="h-1.5 bg-[var(--editorial-primary)]" style={{ width: `${avatarProgress}%` }} />
               </div>
             )}
           </div>
 
-          {/* Bio + privacy switch */}
-          <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-2">
+          <div className="rounded-xl border border-[var(--editorial-border)] p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <label className="font-display text-xs font-bold uppercase">Biografía corta / Línea editorial</label>
               {renderTogglePill('showBio')}
@@ -943,13 +1100,12 @@ export const CollaboratorPanel: React.FC = () => {
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               placeholder="Trayectoria, enfoque periodístico o medio..."
-              className="w-full px-3.5 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-sm"
+              className={editorialInputClass}
             />
           </div>
 
-          {/* Extended profession / workplace / city-country with individual visibility toggles */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5">
+            <div className="rounded-xl border border-[var(--editorial-border)] p-3 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-display text-[11px] font-bold uppercase">¿A qué te dedicas?</span>
                 {renderTogglePill('showProfession')}
@@ -960,11 +1116,11 @@ export const CollaboratorPanel: React.FC = () => {
                 value={profession}
                 onChange={(e) => setProfession(e.target.value)}
                 placeholder="Ej. Periodismo de investigación y docente"
-                className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                className={editorialInputClass}
               />
             </div>
 
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5">
+            <div className="rounded-xl border border-[var(--editorial-border)] p-3 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-display text-[11px] font-bold uppercase">Cargo o trabajo actual</span>
                 {renderTogglePill('showJobTitle')}
@@ -975,13 +1131,13 @@ export const CollaboratorPanel: React.FC = () => {
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
                 placeholder="Ej. Reportero/a de derechos humanos"
-                className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                className={editorialInputClass}
               />
             </div>
 
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5">
+            <div className="rounded-xl border border-[var(--editorial-border)] p-3 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-display text-[11px] font-bold uppercase">Organización o medio donde trabaja</span>
+                <span className="font-display text-[11px] font-bold uppercase">Organización o medio</span>
                 {renderTogglePill('showOrganization')}
               </div>
               <input
@@ -990,11 +1146,11 @@ export const CollaboratorPanel: React.FC = () => {
                 value={organization}
                 onChange={(e) => setOrganization(e.target.value)}
                 placeholder="Ej. Colectivo Prensa Libre"
-                className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                className={editorialInputClass}
               />
             </div>
 
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5">
+            <div className="rounded-xl border border-[var(--editorial-border)] p-3 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-display text-[11px] font-bold uppercase">Ciudad y país</span>
                 {renderTogglePill('showCityCountry')}
@@ -1006,7 +1162,7 @@ export const CollaboratorPanel: React.FC = () => {
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   placeholder="Ciudad"
-                  className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  className={editorialInputClass}
                 />
                 <input
                   type="text"
@@ -1014,22 +1170,21 @@ export const CollaboratorPanel: React.FC = () => {
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
                   placeholder="País"
-                  className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  className={editorialInputClass}
                 />
               </div>
             </div>
           </div>
 
-          {/* Afiliación política (Dato sensible · Ley 1581 de 2012) */}
-          <div className="rounded-xl border border-neutral-300 dark:border-neutral-700 bg-[#F8F6F1] dark:bg-[#1A1A1A] p-4 sm:p-5 space-y-4">
+          <div className="rounded-xl border border-[var(--editorial-border)] bg-[var(--editorial-surface-subtle)] p-4 sm:p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="font-display text-xs font-bold uppercase tracking-wider text-[var(--editorial-primary)] flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Afiliación política (Dato sensible · Ley 1581 de 2012)</span>
                 </h3>
-                <p className="text-[11px] text-neutral-600 dark:text-neutral-400 mt-0.5">
-                  ¿Perteneces a algún partido o movimiento político? Esta respuesta es voluntaria y puedes borrarla en cualquier momento.
+                <p className="text-[11px] text-[var(--editorial-muted)] mt-0.5">
+                  ¿Perteneces a algún partido o movimiento político? Esta respuesta es voluntaria.
                 </p>
               </div>
               {renderTogglePill('showPoliticalAffiliation', 'Visible al público', 'Privado')}
@@ -1053,7 +1208,7 @@ export const CollaboratorPanel: React.FC = () => {
                   className={`px-3 py-2 rounded-xl border text-xs font-display font-bold uppercase cursor-pointer transition-colors ${
                     politicalAffiliation === val
                       ? 'border-[var(--editorial-primary)] bg-[var(--editorial-primary)] text-white'
-                      : 'border-neutral-300 dark:border-neutral-700 bg-white dark:bg-[#141414]'
+                      : 'border-[var(--editorial-border)] bg-[var(--editorial-surface)]'
                   }`}
                 >
                   {label}
@@ -1062,7 +1217,7 @@ export const CollaboratorPanel: React.FC = () => {
             </div>
 
             {politicalAffiliation === 'yes' && (
-              <div className="space-y-3 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+              <div className="space-y-3 pt-2 border-t border-[var(--editorial-border)]">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-display text-[11px] font-bold uppercase mb-1">
@@ -1074,12 +1229,12 @@ export const CollaboratorPanel: React.FC = () => {
                       value={politicalPartyName}
                       onChange={(e) => setPoliticalPartyName(e.target.value)}
                       placeholder="Nombre de la organización"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#141414] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      className={editorialInputClass}
                     />
                   </div>
                   <div>
                     <label className="block font-display text-[11px] font-bold uppercase mb-1">
-                      Cargo o rol dentro de él (opcional)
+                      Cargo o rol dentro de él
                     </label>
                     <input
                       type="text"
@@ -1087,14 +1242,14 @@ export const CollaboratorPanel: React.FC = () => {
                       value={politicalPartyRole}
                       onChange={(e) => setPoliticalPartyRole(e.target.value)}
                       placeholder="Ej. Militante, vocería..."
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#141414] border border-neutral-300 dark:border-neutral-700 text-xs"
+                      className={editorialInputClass}
                     />
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#141414] p-3 space-y-2">
+                <div className="rounded-xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-display text-[11px] font-bold uppercase">Logo o foto del partido (256px WebP)</span>
+                    <span className="font-display text-[11px] font-bold uppercase">Logo o foto del partido</span>
                     {renderTogglePill('showPoliticalPartyLogo', 'Logo visible', 'Logo oculto')}
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -1102,10 +1257,10 @@ export const CollaboratorPanel: React.FC = () => {
                       <img
                         src={sanitizeExternalUrl(politicalPartyLogoUrl)}
                         alt="Logo del partido"
-                        className="w-10 h-10 rounded-lg object-contain border border-neutral-300 bg-white p-0.5"
+                        className="w-10 h-10 rounded-lg object-contain border border-[var(--editorial-border)] bg-white p-0.5"
                       />
                     )}
-                    <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#111111] dark:bg-white text-white dark:text-black text-[11px] font-display font-bold uppercase cursor-pointer">
+                    <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[var(--editorial-ink)] text-[var(--editorial-paper)] text-[11px] font-display font-bold uppercase cursor-pointer">
                       <Upload className="w-3 h-3" />
                       <span>Subir logo</span>
                       <input
@@ -1144,7 +1299,7 @@ export const CollaboratorPanel: React.FC = () => {
                     )}
                   </div>
                   {partyLogoProgress !== null && (
-                    <div className="h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-[var(--editorial-surface-subtle)] overflow-hidden">
                       <div className="h-1.5 bg-[var(--editorial-primary)]" style={{ width: `${partyLogoProgress}%` }} />
                     </div>
                   )}
@@ -1158,10 +1313,10 @@ export const CollaboratorPanel: React.FC = () => {
                     className="mt-0.5"
                   />
                   <span>
-                    <strong>Autorización expresa (Ley 1581 de 2012):</strong> Consiento el tratamiento de mi afiliación política como dato sensible para archivo administrativo de transparencia editorial y para su publicación únicamente si activo el interruptor «Visible al público».
+                    <strong>Autorización expresa (Ley 1581 de 2012):</strong> Consiento el tratamiento de mi afiliación política como dato sensible para archivo administrativo de transparencia editorial.
                     {politicalConsentAcceptedAt && (
-                      <span className="block text-[10px] text-neutral-500 mt-0.5">
-                        Registrado: {new Date(politicalConsentAcceptedAt).toLocaleDateString('es-ES')}
+                      <span className="block text-[10px] text-[var(--editorial-muted)] mt-0.5">
+                        Registrado: {new Date(politicalConsentAcceptedAt).toLocaleDateString('es-CO')}
                       </span>
                     )}
                   </span>
@@ -1181,20 +1336,19 @@ export const CollaboratorPanel: React.FC = () => {
             )}
           </div>
 
-          {/* Optional contact, location, topics & social fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {(
               [
                 ['Sitio web', websiteUrl, setWebsiteUrl, 'showWebsite', 'https://...', 'url'],
                 ['Correo público de contacto', publicEmail, setPublicEmail, 'showPublicEmail', 'contacto@ejemplo.org', 'email'],
-                ['Región / Territorio libre', location, setLocation, 'showLocation', 'Ej. Sur de Colombia', 'text'],
+                ['Región / Territorio libre', location, setLocation, 'showLocation', 'Ej. Tolima y centro andino', 'text'],
                 ['Temas de especialización (coma)', topicsInput, setTopicsInput, 'showTopics', 'Derechos humanos, economía, territorio', 'text'],
                 ['X / Twitter', socialTwitter, setSocialTwitter, 'showSocialTwitter', '@usuario o https://...', 'text'],
                 ['Instagram', socialInstagram, setSocialInstagram, 'showSocialInstagram', '@usuario o https://...', 'text'],
                 ['YouTube', socialYoutube, setSocialYoutube, 'showSocialYoutube', 'Canal o https://...', 'text'],
               ] as const
             ).map(([label, val, setter, flagKey, placeholder, inputType]) => (
-              <div key={flagKey} className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 space-y-1.5">
+              <div key={flagKey} className="rounded-xl border border-[var(--editorial-border)] p-3 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-display text-[11px] font-bold uppercase">{label}</span>
                   {renderTogglePill(flagKey)}
@@ -1204,13 +1358,12 @@ export const CollaboratorPanel: React.FC = () => {
                   value={val}
                   onChange={(e) => setter(e.target.value)}
                   placeholder={placeholder}
-                  className="w-full px-3 py-2 rounded-xl bg-[#F8F6F1] dark:bg-[#1E1E1E] border border-neutral-300 dark:border-neutral-700 text-xs"
+                  className={editorialInputClass}
                 />
               </div>
             ))}
           </div>
 
-          {/* Metadata toggles */}
           <div className="flex flex-wrap gap-5 pt-1 text-xs font-display font-bold uppercase">
             <label className="inline-flex items-center gap-2 cursor-pointer">
               <input
@@ -1230,48 +1383,102 @@ export const CollaboratorPanel: React.FC = () => {
             </label>
           </div>
 
-          <button type="submit" className="px-6 py-2.5 rounded-full bg-[var(--editorial-primary)] hover:bg-[var(--editorial-accent)] text-white font-display text-xs font-bold uppercase cursor-pointer">
+          <EditorialButton type="submit" size="md">
             Guardar perfil y privacidad
-          </button>
-          {profileErr && <p role="alert" className="text-xs text-red-600">{profileErr}</p>}
-          {profileMsg && <p className="text-xs text-emerald-600">{profileMsg}</p>}
+          </EditorialButton>
+          {profileErr && <EditorialNotice tone="error">{profileErr}</EditorialNotice>}
+          {profileMsg && <EditorialNotice tone="success">{profileMsg}</EditorialNotice>}
         </form>
       )}
 
       {tab === 'stats' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5">
-              <p className="font-display text-xs uppercase tracking-wider text-neutral-500">Visitas totales</p>
-              <p className="font-tabular text-3xl font-bold mt-1">{totalViews.toLocaleString('es-ES')}</p>
-            </div>
-            <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5">
-              <p className="font-display text-xs uppercase tracking-wider text-neutral-500">Publicaciones propias</p>
-              <p className="font-tabular text-3xl font-bold mt-1">{myPosts.length}</p>
-            </div>
-            <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5">
-              <p className="font-display text-xs uppercase tracking-wider text-neutral-500">Lectura promedio</p>
-              <p className="font-tabular text-3xl font-bold mt-1">{avgReadSec} s</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#141414] p-5 space-y-3">
-            <h3 className="font-display text-lg font-bold uppercase">Rendimiento por publicación</h3>
-            {myPosts.map((p) => (
+        <div className="rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-5 sm:p-6 space-y-4">
+          <h3 className="font-display text-lg font-extrabold uppercase text-[var(--editorial-ink)]">
+            Rendimiento por publicación
+          </h3>
+          {myPosts.length === 0 ? (
+            <p className="text-sm text-[var(--editorial-muted)]">Aún no hay métricas de lecturas registradas.</p>
+          ) : (
+            myPosts.map((p) => (
               <div key={p.id} className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold truncate max-w-md">{p.title}</span>
-                  <span className="font-tabular">{p.viewCount || 0} lecturas</span>
+                <div className="flex justify-between text-xs gap-2">
+                  <span className="font-semibold truncate max-w-md text-[var(--editorial-ink)]">{p.title}</span>
+                  <span className="font-tabular text-[var(--editorial-muted)] shrink-0">
+                    {(p.viewCount || 0).toLocaleString('es-CO')} lecturas
+                  </span>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800">
+                <div className="h-2 rounded-full overflow-hidden bg-[var(--editorial-surface-subtle)]">
                   <div
-                    className="h-2 bg-[var(--editorial-primary)]"
-                    style={{ width: `${Math.min(100, Math.round(((p.viewCount || 0) / Math.max(1, totalViews)) * 100))}%` }}
+                    className="h-2 bg-[var(--editorial-primary)] transition-all"
+                    style={{
+                      width: `${Math.min(100, Math.round(((p.viewCount || 0) / Math.max(1, totalViews)) * 100))}%`,
+                    }}
                   />
                 </div>
               </div>
-            ))}
-          </div>
+            ))
+          )}
         </div>
+      )}
+
+      {tab === 'permissions' && (
+        <form
+          onSubmit={handlePermissionRequest}
+          className="max-w-2xl rounded-2xl border border-[var(--editorial-border)] bg-[var(--editorial-surface)] p-6 space-y-5"
+        >
+          <div className="space-y-1 border-b border-[var(--editorial-border)] pb-4">
+            <p className="font-display text-xs font-bold uppercase tracking-widest text-[var(--editorial-primary)]">
+              Canal directo con administración
+            </p>
+            <h2 className="font-display text-2xl font-extrabold uppercase text-[var(--editorial-ink)]">
+              Solicitar permisos o revisión editorial
+            </h2>
+            <p className="text-xs text-[var(--editorial-muted)] leading-relaxed">
+              Solicita habilitación para publicación directa, asignación a series especiales o revisión prioritaria de tus entregas. Ningún colaborador puede auto-asignarse permisos sin aprobación del administrador.
+            </p>
+          </div>
+
+          <div>
+            <label className="block font-display text-xs font-bold uppercase tracking-wider mb-1">
+              Tipo de solicitud
+            </label>
+            <select
+              value={permCategory}
+              onChange={(e) => setPermCategory(e.target.value)}
+              className={editorialInputClass}
+            >
+              <option>Publicación directa sin pre-revisión</option>
+              <option>Destacar firma en el directorio principal</option>
+              <option>Crear o participar en serie especial / dossier</option>
+              <option>Revisión prioritaria de artículo en cola</option>
+              <option>Actualización o rectificación editorial</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-display text-xs font-bold uppercase tracking-wider mb-1">
+              Justificación y detalles *
+            </label>
+            <textarea
+              required
+              rows={4}
+              minLength={10}
+              maxLength={2800}
+              value={permDetails}
+              onChange={(e) => setPermDetails(e.target.value)}
+              placeholder="Explica tu solicitud, trayectoria o el enlace de la entrega que requiere revisión..."
+              className={editorialInputClass}
+            />
+          </div>
+
+          <EditorialButton type="submit" disabled={permSending}>
+            <Send className="w-3.5 h-3.5" />
+            <span>{permSending ? 'Enviando solicitud...' : 'Enviar solicitud a administración'}</span>
+          </EditorialButton>
+
+          {permErr && <EditorialNotice tone="error">{permErr}</EditorialNotice>}
+          {permMsg && <EditorialNotice tone="success">{permMsg}</EditorialNotice>}
+        </form>
       )}
     </main>
   );
